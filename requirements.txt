@@ -1,0 +1,12 @@
+cryptography
+sshtunnel
+pymysql
+pg8000
+openpyxl
+fpdf2
+paramiko
+openai>=1.0.0
+pystray
+Pillow
+sqlparse
+pyinstaller

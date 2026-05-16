@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Local Database & Keys (Sensitive)
+connections.db
+secret.key
+
+# Build & Distribution
+build/
+dist/
+*.spec
+
+# Sync Logs & Temporary exports
+sync_logs/
+*.xlsx
+*.html
+*.md
+!README.md
+*.pdf
+*.ncx
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
