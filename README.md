@@ -1,6 +1,6 @@
 # MDBS
 
-基于 Python + Tkinter 的轻量级桌面数据库管理工具，支持通过 SSH 隧道安全访问远程 MySQL/MariaDB 和 PostgreSQL。集成了 SQL 编辑器、表结构管理、数据同步及可视化导出。
+基于 **FastAPI + Vue 3** 的现代 Web 数据库管理工具，支持通过 SSH 隧道安全访问远程 MySQL/MariaDB 和 PostgreSQL。集成了 SQL 编辑器、表结构管理、数据同步、多格式导出及 AI 智能助手。
 
 ---
 
@@ -11,30 +11,29 @@
 - **PostgreSQL**: 基于 `pg8000.native` 实现，支持 Schema 切换及复杂类型展示。
 
 ### 智能 SQL 工作台
-- **语法高亮**: 实时高亮 SQL 关键字、字符串、数字及注释。
-- **异步执行**: 所有 SQL 语句均在后台线程执行，确保海量数据查询时 UI 依然响应灵敏。
-- **智能补全**: 基于本地元数据缓存，提供库名、表名及 SQL 关键字的实时建议。
-- **结果编辑**: 支持直接在查询结果表格中双击修改数据（需满足可更新条件）。
-- **草稿保护**: 每 30 秒自动保存编辑器内容，防止意外关闭导致进度丢失。
+- **语法高亮**: CodeMirror 6 实时高亮 SQL 关键字、字符串、数字及注释。
+- **异步执行**: 所有 SQL 语句在后台异步执行，确保海量数据查询时前端依然响应灵敏。
+- **多标签页**: 支持同时打开多个工作台标签页，独立管理查询上下文。
 
 ### 数据库管理与表结构
-- **数据库操作**: 支持快速创建新数据库（自定义字符集/排序规则）及删除数据库。
-- **标签页化管理**: 表结构管理集成在主工作区 Tab 中，支持多表并发编辑。
-- **原地编辑 (Inline Edit)**: 双击单元格即可修改字段名、类型、默认值及注释。
-- **变更预览**: 自动生成并展示 `ALTER TABLE` 语句，确保操作透明。
+- **数据库操作**: 支持快速创建新数据库及删除数据库。
+- **表浏览**: 查看表结构、索引、DDL 定义、表数据。
 
 ### 企业级安全与隧道
-- **SSH 隧道**: 支持密码认证及 OpenSSH 私钥认证，配置变更自动重连。
+- **SSH 隧道**: 支持密码认证及 OpenSSH 私钥认证。
 - **字段加密**: 采用 AES (Fernet) 加密标准存储所有数据库密码及 SSH 私钥短语。
 
 ### AI 智能助手 (OpenAI v1.0+ 适配)
-- **自然语言转 SQL**: 通过对话面板描述需求，自动生成高质量 SQL 脚本。
+- **自然语言转 SQL**: 通过对话界面描述需求，自动生成高质量 SQL 脚本。
 - **架构感知**: 自动提取当前数据库上下文（表名、列名、注释），实现精准回复。
+- **SSE 流式回复**: AI 生成内容实时流式展示，无需等待完整响应。
 - **SQL 诊断**: 提供查询性能优化建议及语法错误解析。
 
-### 可视化与导出
-- **ER 关系图**: 生成基于 Mermaid 的交互式 HTML 拓扑图，直观展现表间依赖。
-- **多格式导出**: 支持 **Excel, PDF, HTML, Markdown, CSV** 及 **Navicat (.ncx)** 配置导出。
+### 多格式导出
+- 支持 **Excel (.xlsx), PDF, HTML, Markdown, CSV** 及 **Navicat (.ncx)** 配置导出。
+
+### 数据库同步
+- **跨库同步**: 支持表结构 + 数据同步，带完整日志记录。
 
 ---
 
@@ -42,22 +41,44 @@
 
 ### 环境要求
 - Python 3.7+
-- 推荐使用 64 位操作系统（用于打包支持）
+- Node.js 18+ (仅前端开发时需要)
+- 推荐使用 64 位操作系统
 
-### 1. 安装依赖
+### 开发模式运行
+
 ```bash
+# 1. 后端启动
+cd backend
 pip install -r requirements.txt
+uvicorn main:app --host 127.0.0.1 --port 18080 --reload
+
+# 2. 前端启动 (新终端窗口)
+cd frontend
+npm install
+npm run dev
 ```
 
-### 2. 启动应用
+打开浏览器访问 `http://localhost:5173`（Vite 开发服务器自动代理 API 到 18080 端口）。
+
+### 生产模式运行
+
 ```bash
-python app.py
+# 1. 构建前端
+cd frontend
+npm run build
+
+# 2. 启动后端 (自动加载前端静态文件)
+python scripts/run_backend.py
 ```
 
-### 3. 打包可执行文件
+访问 `http://127.0.0.1:18080/`。
+
+### 打包为独立可执行文件
+
 ```bash
 pip install pyinstaller
-python build_exe.py
+python scripts/build_backend_exe.py
+# 输出: dist/mdbs-server/
 ```
 
 ---
@@ -66,49 +87,60 @@ python build_exe.py
 
 ```
 DBConnectorManager/
-├── app.py                          # 应用程序入口
-├── build_exe.py                    # PyInstaller 打包自动化脚本
-├── icon.ico                        # 应用图标（多尺寸 .ico）
-├── core/                           # 核心业务逻辑（解耦 UI）
-│   ├── ai/                         # AI 模块
-│   │   ├── client.py               # OpenAI 协议兼容客户端
-│   │   ├── context_builder.py      # 数据库上下文提取器
-│   │   └── markdown_renderer.py    # AI 回复 Markdown 渲染引擎
-│   ├── db_operations.py            # 数据库 CRUD 与连接池管理
-│   ├── ssh_manager.py              # SSH 隧道建立与生命周期维护
-│   ├── exporter.py                 # 多格式数据/结构导出引擎
-│   ├── importer.py                 # SQL/CSV 数据导入引擎
-│   ├── syncer.py                   # 跨库同步核心逻辑
-│   ├── backup_manager.py           # 数据库备份/恢复管理
-│   ├── scratch_manager.py          # SQL 工作台草稿持久化
-│   ├── metadata_cache.py           # 库表元数据缓存
-│   ├── sql_completer.py            # 基于元数据的自动补全引擎
-│   ├── theme.py                    # 主题颜色配置
-│   └── ui_style.py                 # UI 样式工具函数
-├── ui/                             # Tkinter 界面层
-│   ├── ai/                         # AI 交互界面（对话面板、向导）
-│   ├── main_window.py              # IDE 风格主窗体（多文档界面）
-│   ├── sql_workbench.py            # 高级 SQL 编辑器组件
-│   ├── table_manager.py            # 内联式表结构编辑器
-│   ├── create_db_dialog.py         # 数据库创建对话框
-│   ├── edit_dialog.py              # 连接属性编辑（含 SSH 配置）
-│   ├── settings_dialog.py          # 全局设置（主题、字体、AI 秘钥）
-│   ├── sync_dialog.py              # 数据库同步向导
-│   ├── sync_progress_dialog.py     # 同步进度展示对话框
-│   ├── import_dialog.py            # 数据导入对话框
-│   ├── export_dialog.py            # 数据导出对话框
-│   ├── export_format_dialog.py     # 导出格式选择对话框
-│   ├── er_export_dialog.py         # ER 图导出配置
-│   ├── view_manager_dialog.py      # 视图定义管理
-│   ├── function_manager_dialog.py  # 函数与存储过程管理
-│   ├── backup_dialog.py            # 备份/恢复对话框
-│   ├── history_window.py           # 同步历史记录窗口
-│   └── progress_dialog.py          # 通用进度对话框
-├── models/                         # 数据访问层
-│   ├── db_storage.py               # SQLite 持久化（连接、设置、历史）
-│   └── sync_history.py             # 同步任务日志管理
-└── utils/                          # 通用工具
-    └── crypto.py                   # 安全加密模块 (CryptoUtils)
+├── backend/                        # FastAPI 后端服务
+│   ├── main.py                     # 应用入口 (API + SPA 静态托管)
+│   ├── core/                       # 核心业务逻辑
+│   │   ├── db_operations.py        # 数据库 CRUD 与连接管理
+│   │   ├── ssh_manager.py          # SSH 隧道维护
+│   │   ├── exporter.py             # 多格式导出引擎
+│   │   ├── importer.py             # 数据导入引擎
+│   │   ├── syncer.py               # 跨库同步逻辑
+│   │   ├── backup_manager.py       # 备份/恢复管理
+│   │   ├── metadata_cache.py       # 元数据缓存
+│   │   └── ai/                     # AI 模块
+│   │       ├── client.py           # OpenAI 客户端
+│   │       ├── context_builder.py  # 数据库上下文提取
+│   │       └── markdown_renderer.py # Markdown 渲染
+│   ├── models/                     # 数据访问层
+│   ├── routers/                    # API 路由
+│   │   ├── connections.py          # 连接管理
+│   │   ├── databases.py            # 数据库管理
+│   │   ├── tables.py               # 表结构管理
+│   │   ├── query.py                # SQL 查询
+│   │   ├── backup.py               # 备份/恢复
+│   │   ├── export.py               # 数据导出
+│   │   ├── import_routes.py        # 数据导入
+│   │   ├── sync.py                 # 同步管理
+│   │   └── ai.py                   # AI 对话 (SSE 流式)
+│   └── utils/                      # 通用工具
+│       └── crypto.py               # 加密模块
+├── frontend/                       # Vue 3 前端 SPA
+│   ├── index.html
+│   ├── src/
+│   │   ├── App.vue                 # 根组件 (Naive UI 全局配置)
+│   │   ├── api/index.ts            # API 请求层 (Axios)
+│   │   ├── components/             # 公共组件
+│   │   │   ├── AppLayout.vue       # 主布局
+│   │   │   ├── Sidebar.vue         # 侧边导航
+│   │   │   ├── SqlEditor.vue       # CodeMirror 编辑器
+│   │   │   ├── TabWorkspace.vue    # 标签页工作区
+│   │   │   └── dialogs/            # 对话框组件
+│   │   ├── router/index.ts         # 路由配置
+│   │   ├── stores/app.ts           # Pinia 状态管理
+│   │   └── views/                  # 页面
+│   │       ├── ConnectionList.vue   # 连接列表
+│   │       ├── ConnectionDetail.vue # 连接编辑
+│   │       ├── SQLWorkbench.vue     # SQL 工作台
+│   │       ├── TableBrowser.vue     # 表结构浏览
+│   │       ├── AIChat.vue           # AI 对话
+│   │       ├── AISettingsPage.vue   # AI 设置
+│   │       └── SettingsPage.vue     # 全局设置
+│   └── vite.config.ts
+├── scripts/                        # 构建/运行脚本
+│   ├── run_backend.py              # 启动脚本
+│   └── build_backend_exe.py        # PyInstaller 打包脚本
+├── icon.ico                        # 应用图标
+└── sync_logs/                      # 同步日志目录
 ```
 
 ---
@@ -119,7 +151,24 @@ DBConnectorManager/
 |------|----------|
 | `connections.db` | 存储连接配置、SQL 历史、同步日志，数据库密码已加密 |
 | `secret.key` | 本地加解密唯一根密钥（切勿分享或丢失） |
-| `~/.db_connector_scratch/` | SQL 工作台自动保存的脚本草稿 |
+| `sync_logs/` | 数据库同步任务日志目录 |
+
+---
+
+## API 路由
+
+| 前缀 | 说明 |
+|------|------|
+| `/api/health` | 服务健康检查 |
+| `/api/connections` | 连接管理 (CRUD) |
+| `/api/databases` | 数据库列表/创建/删除 |
+| `/api/tables` | 表结构、数据、索引 |
+| `/api/query` | SQL 执行 |
+| `/api/backup` | 备份与恢复 |
+| `/api/export` | 数据导出 |
+| `/api/import` | 数据导入 |
+| `/api/sync` | 同步管理 |
+| `/api/ai` | AI 对话 (SSE 流式) |
 
 ---
 
@@ -127,17 +176,16 @@ DBConnectorManager/
 
 | 快捷键 | 功能 |
 |--------|------|
-| `F5` | 执行当前 SQL / 刷新资源树 |
-| `Ctrl+S` | 保存当前工作台内容 |
-| `Ctrl+Shift+S` | 一键保存所有打开的草稿 |
-| `Ctrl+F` | 在当前编辑器内查找内容 |
+| `F5` / `Ctrl+Enter` | 执行当前 SQL |
+| `Ctrl+S` | 保存当前草稿 |
 
 ---
 
 ## 开发与贡献
 
 - **代码规范**: 请遵循 `AGENTS.md` 中定义的开发规约。
-- **异步处理**: 任何涉及网络或 IO 的操作必须通过 `threading` 异步处理，禁止阻塞 UI 线程。
+- **API 规范**: RESTful 风格，统一使用 Pydantic 模型校验。
+- **前端规范**: Vue 3 Composition API + TypeScript + Naive UI。
 - **安全性**: 严禁在代码或日志中明文打印任何凭据。
 
 ---
