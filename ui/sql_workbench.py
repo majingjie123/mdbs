@@ -332,11 +332,11 @@ class SQLWorkbench(ttk.Frame):
         self.data_footer.grid(row=2, column=0, columnspan=2, sticky="ew")
         
         # 左侧：数据编辑按钮
-        self.save_data_btn = ttk.Button(self.data_footer, text="✓ 保存修改", command=self._save_data_changes, state="disabled")
-        self.save_data_btn.pack(side="left", padx=2)
+        self.save_data_btn = ttk.Button(self.data_footer, text="✓", command=self._save_data_changes, state="disabled")
+        self.save_data_btn.pack(side="left", padx=1)
         
-        self.cancel_data_btn = ttk.Button(self.data_footer, text="✗ 取消修改", command=self._cancel_data_changes, state="disabled")
-        self.cancel_data_btn.pack(side="left", padx=2)
+        self.cancel_data_btn = ttk.Button(self.data_footer, text="✗", command=self._cancel_data_changes, state="disabled")
+        self.cancel_data_btn.pack(side="left", padx=1)
 
         ttk.Separator(self.data_footer, orient="vertical").pack(side="left", padx=10, fill="y")
 
@@ -765,7 +765,12 @@ class SQLWorkbench(ttk.Frame):
             return
         if is_query:
             if self.current_query_table and self.current_query_pks:
-                self.edit_tip_label.config(text=f"表: {self.current_query_table} (双击编辑)", fg="blue")
+                # 验证主键列都在结果集中，否则无法构建 UPDATE 的 WHERE 条件
+                if all(pk in cols for pk in self.current_query_pks):
+                    self.edit_tip_label.config(text=f"表: {self.current_query_table} (双击编辑)", fg="blue")
+                else:
+                    self.current_query_pks = []  # 降级为只读
+                    self.edit_tip_label.config(text="结果只读", fg="gray")
             else:
                 self.edit_tip_label.config(text="结果只读", fg="gray")
             self._display_results(cols, rows)
@@ -1505,7 +1510,6 @@ class SQLWorkbench(ttk.Frame):
 
     def _on_tree_cell_double_click(self, event):
         """双击单元格进入内联编辑状态"""
-        # 必须有表名和主键才能编辑
         if not self.current_query_table or not self.current_query_pks:
             return
             
@@ -1516,63 +1520,176 @@ class SQLWorkbench(ttk.Frame):
         item_id = self.tree.identify_row(event.y)
         if not item_id or not column: return
         
-        # 获取列索引和名称
         try:
             col_idx = int(column.replace("#", "")) - 1
-            cols = self.tree["columns"]
-            if col_idx < 0 or col_idx >= len(cols): return
-            col_name = cols[col_idx]
-        except: return
+        except:
+            return
         
-        # 获取当前单元格的值
+        self._open_inline_editor(item_id, col_idx)
+
+    def _open_inline_editor(self, item_id, col_idx):
+        """在指定单元格打开内联编辑器（带键盘导航）"""
+        cols = self.tree["columns"]
+        if col_idx < 0 or col_idx >= len(cols): return
+        col_name = cols[col_idx]
+
         item_data = self.tree.item(item_id)
         curr_vals = item_data.get("values", [])
         if not curr_vals or col_idx >= len(curr_vals): return
         curr_val = curr_vals[col_idx]
-        
-        # 计算位置并弹出 Entry
+
+        column = f"#{col_idx + 1}"
         bbox = self.tree.bbox(item_id, column)
         if not bbox: return
         x, y, w, h = bbox
-        
-        edit_entry = tk.Entry(self.tree, font=("Microsoft YaHei", 9), bd=1, relief="solid")
+
+        # 获取主题色美化编辑框
+        colors = get_theme_colors(self.settings.get('theme', '默认'))
+        accent = colors["accent"]
+
+        edit_entry = tk.Entry(
+            self.tree,
+            font=("Microsoft YaHei", 9),
+            bd=0,
+            highlightthickness=2,
+            highlightcolor=accent,
+            highlightbackground=accent,
+            relief="flat",
+            selectbackground=colors["select_bg"],
+            selectforeground=colors["fg"],
+        )
         edit_entry.insert(0, str(curr_val))
         edit_entry.select_range(0, tk.END)
-        edit_entry.place(x=x, y=y, width=w, height=h)
+        # 微调位置覆盖单元格
+        edit_entry.place(x=x + 2, y=y + 1, width=max(w - 4, 20), height=h - 1)
         edit_entry.focus_set()
-        
-        # 状态标志，防止重复触发
-        self._is_saving_edit = False
 
-        def commit_change(event=None):
-            if self._is_saving_edit or not edit_entry.winfo_exists(): return
-            self._is_saving_edit = True
-            
+        # 将当前编辑上下文附着到控件上
+        edit_entry._ctx = (item_id, col_idx, col_name, curr_val, list(curr_vals))
+        self._editing_entry = edit_entry
+        self._edit_navigating = False
+
+        # ── 内部辅助函数 ──────────────────────────────────
+
+        def _commit():
+            """提交当前值，返回是否实际有变更"""
+            if not edit_entry.winfo_exists():
+                return False
+            _item_id, _col_idx, _col_name, _old_val, _orig_vals = edit_entry._ctx
             new_val = edit_entry.get()
-            # 比较字符串值，并去除两端空格
-            if str(new_val).strip() != str(curr_val).strip():
-                # 记录变更数据
-                if item_id not in self.pending_updates:
-                    self.pending_updates[item_id] = {}
-                    self.original_values[item_id] = list(curr_vals)
-                
-                self.pending_updates[item_id][col_name] = new_val
-                
-                # 实时更新 Treeview 显示
-                new_row_vals = list(self.tree.item(item_id, "values"))
-                new_row_vals[col_idx] = new_val
-                self.tree.item(item_id, values=new_row_vals, tags=("modified",))
-                
-                # 强制激活保存和取消按钮
+
+            if str(new_val).strip() != str(_old_val).strip():
+                if _item_id not in self.pending_updates:
+                    self.pending_updates[_item_id] = {}
+                    self.original_values[_item_id] = _orig_vals
+                self.pending_updates[_item_id][_col_name] = new_val
+
+                new_row = list(self.tree.item(_item_id, "values"))
+                new_row[_col_idx] = new_val
+                self.tree.item(_item_id, values=new_row, tags=("modified",))
                 self.save_data_btn.config(state="normal")
                 self.cancel_data_btn.config(state="normal")
-            
-            edit_entry.destroy()
+                return True
+            return False
 
-        edit_entry.bind("<Return>", commit_change)
-        edit_entry.bind("<Escape>", lambda e: edit_entry.destroy())
-        # 失去焦点时自动尝试保存
-        edit_entry.bind("<FocusOut>", lambda e: self.after(50, commit_change))
+        def _close():
+            """安全移除编辑框"""
+            try:
+                edit_entry.unbind("<FocusOut>")
+            except:
+                pass
+            try:
+                edit_entry.destroy()
+            except:
+                pass
+            self._editing_entry = None
+
+        def _do_navigate(delta_row, delta_col):
+            """提交 → 关闭 → 导航到相邻单元格"""
+            self._edit_navigating = True
+            _commit()
+            _close()
+            self._edit_navigating = False
+            if delta_row != 0 or delta_col != 0:
+                self._navigate_to_cell(item_id, col_idx, delta_row, delta_col)
+
+        # ── 事件绑定 ──────────────────────────────────────
+
+        def on_tab(e):
+            shift = bool(e.state & 0x0001)
+            _do_navigate(delta_row=0, delta_col=-1 if shift else 1)
+            return "break"
+
+        def on_enter(e):
+            shift = bool(e.state & 0x0001)
+            _do_navigate(delta_row=-1 if shift else 1, delta_col=0)
+            return "break"
+
+        def on_escape(e):
+            _close()
+
+        def on_focus_out(e):
+            if self._edit_navigating:
+                return
+            self.after(80, lambda: self._focus_out_save(edit_entry))
+
+        edit_entry.bind("<Tab>", on_tab)
+        edit_entry.bind("<Return>", on_enter)
+        edit_entry.bind("<Escape>", on_escape)
+        edit_entry.bind("<FocusOut>", on_focus_out)
+
+        self.tree.see(item_id)
+
+    def _focus_out_save(self, edit_entry):
+        """焦点移出时自动保存（不导航）"""
+        try:
+            if not edit_entry.winfo_exists():
+                return
+        except:
+            return
+        if not hasattr(edit_entry, '_ctx'):
+            return
+
+        item_id, col_idx, col_name, old_val, orig_vals = edit_entry._ctx
+        new_val = edit_entry.get()
+
+        if str(new_val).strip() != str(old_val).strip():
+            if item_id not in self.pending_updates:
+                self.pending_updates[item_id] = {}
+                self.original_values[item_id] = orig_vals
+            self.pending_updates[item_id][col_name] = new_val
+
+            new_row = list(self.tree.item(item_id, "values"))
+            new_row[col_idx] = new_val
+            self.tree.item(item_id, values=new_row, tags=("modified",))
+            self.save_data_btn.config(state="normal")
+            self.cancel_data_btn.config(state="normal")
+
+        try:
+            edit_entry.destroy()
+        except:
+            pass
+
+    def _navigate_to_cell(self, item_id, col_idx, delta_row, delta_col):
+        """导航到相邻单元格并打开编辑器"""
+        all_items = self.tree.get_children()
+        try:
+            row_idx = all_items.index(item_id)
+        except ValueError:
+            return
+
+        new_row_idx = row_idx + delta_row
+        new_col_idx = col_idx + delta_col
+        cols = self.tree["columns"]
+
+        if new_col_idx < 0 or new_col_idx >= len(cols):
+            return
+        if new_row_idx < 0 or new_row_idx >= len(all_items):
+            return
+
+        new_item = all_items[new_row_idx]
+        self.tree.see(new_item)
+        self.after(20, lambda: self._open_inline_editor(new_item, new_col_idx))
 
     def _save_data_changes(self):
         """保存所有挂起的数据修改，并在日志中详细记录生成的 SQL 及新旧值"""
