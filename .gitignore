@@ -14,12 +14,16 @@ dist/
 
 # Sync Logs & Temporary exports
 sync_logs/
-*.xlsx
-*.html
-*.md
-!README.md
-*.pdf
-*.ncx
+/sync_logs/*.xlsx
+/sync_logs/*.html
+/sync_logs/*.md
+/sync_logs/*.pdf
+/sync_logs/*.ncx
+export/*.xlsx
+export/*.html
+export/*.md
+export/*.pdf
+export/*.ncx
 
 # Environments
 .env
@@ -27,3 +31,20 @@ sync_logs/
 env/
 venv/
 ENV/
+
+# Node / Frontend
+node_modules/
+frontend/node_modules/
+frontend/dist/
+
+# IDE
+.idea/
+*.swp
+*.swo
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Temp files
+test_er.html
