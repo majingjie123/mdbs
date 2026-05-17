@@ -42,6 +42,30 @@ class DBOperations:
         except Exception as e:
             raise Exception(f"数据库连接失败 ({db_type}): {str(e)}")
 
+    def disconnect(self, conn_data_or_id):
+        """断开连接，释放隧道资源。接受 conn_data dict 或 conn_id int。"""
+        if isinstance(conn_data_or_id, int):
+            # 如果是 conn_id，从存储读取连接数据
+            from models.db_storage import DBStorage
+            storage = DBStorage()
+            record = storage.get_connection(conn_data_or_id)
+            if not record:
+                return
+            conn_data = {
+                'ssh_enabled': record.get('ssh_enabled', False),
+                'ssh_host': record.get('ssh_host', ''),
+                'ssh_port': record.get('ssh_port', 0),
+                'ssh_user': record.get('ssh_user', ''),
+            }
+        else:
+            conn_data = conn_data_or_id
+
+        if conn_data.get('ssh_enabled'):
+            try:
+                self.ssh_manager.stop_tunnel(conn_data)
+            except Exception:
+                pass
+
     def test_connection(self, conn_data):
         """测试数据库连接 (增强版：支持错误清洗与智能检测)"""
         db_type = conn_data.get('db_type', 'MySQL')
@@ -929,7 +953,12 @@ class DBOperations:
                             # 捕获查询结果 (针对 SELECT 等)
                             if cursor.description:
                                 columns = [col[0] for col in cursor.description]
-                                rows = cursor.fetchall()
+                                raw_rows = cursor.fetchall()
+                                # DictCursor 返回 dict_rows，转换为 list_rows 以匹配 API 契约
+                                if raw_rows and isinstance(raw_rows[0], dict):
+                                    rows = [[row.get(col) for col in columns] for row in raw_rows]
+                                else:
+                                    rows = raw_rows
                                 last_query_res = (columns, rows, len(rows), True)
                             else:
                                 total_affected += cursor.rowcount

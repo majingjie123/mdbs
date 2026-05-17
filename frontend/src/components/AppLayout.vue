@@ -1,59 +1,181 @@
 <script setup lang="ts">
 import { ref, provide } from 'vue'
-import { RouterView, useRouter } from 'vue-router'
-import { useMessage } from 'naive-ui'
+import { useRouter } from 'vue-router'
+import { useMessage, useDialog } from 'naive-ui'
+import { useAppStore } from '../stores/app'
 import Sidebar from './Sidebar.vue'
+import TabWorkspace from './TabWorkspace.vue'
+import ExportDialog from './dialogs/ExportDialog.vue'
+import ImportDialog from './dialogs/ImportDialog.vue'
+import BackupDialog from './dialogs/BackupDialog.vue'
+import SyncDialog from './dialogs/SyncDialog.vue'
 
 const router = useRouter()
 const message = useMessage()
+const dialog = useDialog()
+const store = useAppStore()
 
 // 菜单状态
 const fileMenuVisible = ref(false)
 const toolsMenuVisible = ref(false)
+const editMenuVisible = ref(false)
+const viewMenuVisible = ref(false)
+const helpMenuVisible = ref(false)
+
+// 对话框可见性
+const showExport = ref(false)
+const showImport = ref(false)
+const showBackup = ref(false)
+const showSync = ref(false)
 
 // 状态栏
 const statusText = ref('就绪')
 const statusConn = ref('')
 
-// 提供状态给子组件
 provide('statusText', statusText)
 provide('statusConn', statusConn)
 
+// ── 分割面板 ──
+const splitPos = ref(260)
+const isDragging = ref(false)
+const containerRef = ref<HTMLElement | null>(null)
+
+function onSplitMouseDown(e: MouseEvent) {
+  e.preventDefault()
+  isDragging.value = true
+  document.addEventListener('mousemove', onSplitMouseMove)
+  document.addEventListener('mouseup', onSplitMouseUp)
+}
+
+function onSplitMouseMove(e: MouseEvent) {
+  if (!isDragging.value || !containerRef.value) return
+  const rect = containerRef.value.getBoundingClientRect()
+  let x = e.clientX - rect.left
+  x = Math.max(180, Math.min(x, rect.width - 200))
+  splitPos.value = x
+}
+
+function onSplitMouseUp() {
+  isDragging.value = false
+  document.removeEventListener('mousemove', onSplitMouseMove)
+  document.removeEventListener('mouseup', onSplitMouseUp)
+}
+
+// ── 菜单 ──
 function toggleFileMenu(e: MouseEvent) {
   e.stopPropagation()
   fileMenuVisible.value = !fileMenuVisible.value
   toolsMenuVisible.value = false
+  editMenuVisible.value = false
+  viewMenuVisible.value = false
+  helpMenuVisible.value = false
 }
 
 function toggleToolsMenu(e: MouseEvent) {
   e.stopPropagation()
   toolsMenuVisible.value = !toolsMenuVisible.value
   fileMenuVisible.value = false
+  editMenuVisible.value = false
+  viewMenuVisible.value = false
+  helpMenuVisible.value = false
+}
+
+function toggleEditMenu(e: MouseEvent) {
+  e.stopPropagation()
+  editMenuVisible.value = !editMenuVisible.value
+  fileMenuVisible.value = false
+  toolsMenuVisible.value = false
+  viewMenuVisible.value = false
+  helpMenuVisible.value = false
+}
+
+function toggleViewMenu(e: MouseEvent) {
+  e.stopPropagation()
+  viewMenuVisible.value = !viewMenuVisible.value
+  fileMenuVisible.value = false
+  toolsMenuVisible.value = false
+  editMenuVisible.value = false
+  helpMenuVisible.value = false
+}
+
+function toggleHelpMenu(e: MouseEvent) {
+  e.stopPropagation()
+  helpMenuVisible.value = !helpMenuVisible.value
+  fileMenuVisible.value = false
+  toolsMenuVisible.value = false
+  editMenuVisible.value = false
+  viewMenuVisible.value = false
 }
 
 function closeMenus() {
   fileMenuVisible.value = false
   toolsMenuVisible.value = false
+  editMenuVisible.value = false
+  viewMenuVisible.value = false
+  helpMenuVisible.value = false
 }
 
-// 菜单操作
+// 文件菜单操作
 function goNewConnection() {
   closeMenus()
   router.push('/connections/0?edit=1')
 }
 
-function goImport() { closeMenus(); message.info('导入功能开发中') }
-function goExportStructure() { closeMenus(); message.info('导出表结构功能开发中') }
-function goExportER() { closeMenus(); message.info('导出 ER 图功能开发中') }
-function goExportExcel() { closeMenus(); message.info('导出 Excel 功能开发中') }
-function goExportNavicat() { closeMenus(); message.info('导出 Navicat 功能开发中') }
-function goBackupRestore() { closeMenus(); message.info('备份/恢复功能开发中') }
-function goAISettings() { closeMenus(); message.info('AI 设置功能开发中') }
-function goSync() { closeMenus(); message.info('数据库同步功能开发中') }
-function goStructureSync() { closeMenus(); message.info('同步表结构功能开发中') }
-function goSyncHistory() { closeMenus(); message.info('同步历史功能开发中') }
+function goImport() { closeMenus(); showImport.value = true }
+function goExport() { closeMenus(); showExport.value = true }
+function goBackupRestore() { closeMenus(); showBackup.value = true }
+function goSync() { closeMenus(); showSync.value = true }
+function goSyncHistory() { closeMenus(); showSync.value = true }
 function goSettings() { closeMenus(); router.push('/settings') }
+function goAISettings() { closeMenus(); router.push('/ai/settings') }
+function goAIChat() {
+  closeMenus()
+  store.openTab('ai-chat', 'AI 助手', { connId: store.currentConnId })
+}
 function confirmExit() { closeMenus(); window.close() }
+
+// 编辑菜单
+function goUndo() { closeMenus(); message.info('撤销 (Ctrl+Z)') }
+function goRedo() { closeMenus(); message.info('重做 (Ctrl+Shift+Z)') }
+function goFind() { closeMenus(); message.info('查找 (Ctrl+F)') }
+function goSelectAll() { closeMenus(); message.info('全选 (Ctrl+A)') }
+
+// 视图菜单
+function toggleSidebar() {
+  closeMenus()
+  // 通过查询选择器中 sidebar 的 collapsed 状态切换
+  document.querySelector('.sidebar')?.classList.toggle('collapsed')
+}
+function goFullscreen() {
+  closeMenus()
+  if (!document.fullscreenElement) {
+    document.documentElement.requestFullscreen().catch(() => {})
+  } else {
+    document.exitFullscreen().catch(() => {})
+  }
+}
+
+// 帮助菜单
+function goAbout() {
+  closeMenus()
+  dialog.info({
+    title: '关于 MDBS',
+    content: 'MDBS v1.0\n智能数据库连接管理工具\n\n基于 FastAPI + Vue3',
+  })
+}
+function goShortcuts() {
+  closeMenus()
+  dialog.info({
+    title: '快捷键参考',
+    content: [
+      'F5 / Ctrl+Enter   执行 SQL',
+      'Ctrl+S            保存草稿',
+      'Ctrl+F            查找',
+      'Ctrl+Shift+F      格式化 SQL',
+      'Ctrl+Shift+S      全部保存',
+    ].join('\n'),
+  })
+}
 </script>
 
 <template>
@@ -64,16 +186,12 @@ function confirmExit() { closeMenus(); window.close() }
         <div class="menu-item" @click="toggleFileMenu">
           <span class="menu-label">文件</span>
           <svg width="10" height="6" viewBox="0 0 10 6" fill="currentColor"><path d="M0 0l5 6 5-6z"/></svg>
-          <!-- 文件下拉菜单 -->
           <div v-if="fileMenuVisible" class="dropdown-menu" @click.stop>
             <div class="dropdown-item" @click="goNewConnection">新增连接</div>
             <div class="dropdown-separator"></div>
             <div class="dropdown-item" @click="goImport">导入数据...</div>
             <div class="dropdown-separator"></div>
-            <div class="dropdown-item" @click="goExportStructure">导出表结构...</div>
-            <div class="dropdown-item" @click="goExportER">导出 ER 图...</div>
-            <div class="dropdown-item" @click="goExportExcel">导出连接 (Excel)</div>
-            <div class="dropdown-item" @click="goExportNavicat">导出为 Navicat (.ncx)</div>
+            <div class="dropdown-item" @click="goExport">导出...</div>
             <div class="dropdown-separator"></div>
             <div class="dropdown-item" @click="goBackupRestore">备份 / 恢复...</div>
             <div class="dropdown-separator"></div>
@@ -85,11 +203,40 @@ function confirmExit() { closeMenus(); window.close() }
         <div class="menu-item" @click="toggleToolsMenu">
           <span class="menu-label">工具</span>
           <svg width="10" height="6" viewBox="0 0 10 6" fill="currentColor"><path d="M0 0l5 6 5-6z"/></svg>
-          <!-- 工具下拉菜单 -->
           <div v-if="toolsMenuVisible" class="dropdown-menu" @click.stop>
             <div class="dropdown-item" @click="goSync">数据库同步</div>
-            <div class="dropdown-item" @click="goStructureSync">同步表结构</div>
+            <div class="dropdown-item" @click="goSync">同步表结构</div>
             <div class="dropdown-item" @click="goSyncHistory">同步历史记录</div>
+            <div class="dropdown-separator"></div>
+            <div class="dropdown-item" @click="goAIChat">AI 对话</div>
+            <div class="dropdown-item" @click="goAISettings">AI 设置</div>
+          </div>
+        </div>
+        <div class="menu-item" @click="toggleEditMenu">
+          <span class="menu-label">编辑</span>
+          <svg width="10" height="6" viewBox="0 0 10 6" fill="currentColor"><path d="M0 0l5 6 5-6z"/></svg>
+          <div v-if="editMenuVisible" class="dropdown-menu" @click.stop>
+            <div class="dropdown-item" @click="goUndo">撤销</div>
+            <div class="dropdown-item" @click="goRedo">重做</div>
+            <div class="dropdown-separator"></div>
+            <div class="dropdown-item" @click="goFind">查找...</div>
+            <div class="dropdown-item" @click="goSelectAll">全选</div>
+          </div>
+        </div>
+        <div class="menu-item" @click="toggleViewMenu">
+          <span class="menu-label">视图</span>
+          <svg width="10" height="6" viewBox="0 0 10 6" fill="currentColor"><path d="M0 0l5 6 5-6z"/></svg>
+          <div v-if="viewMenuVisible" class="dropdown-menu" @click.stop>
+            <div class="dropdown-item" @click="toggleSidebar">切换侧栏</div>
+            <div class="dropdown-item" @click="goFullscreen">全屏</div>
+          </div>
+        </div>
+        <div class="menu-item" @click="toggleHelpMenu">
+          <span class="menu-label">帮助</span>
+          <svg width="10" height="6" viewBox="0 0 10 6" fill="currentColor"><path d="M0 0l5 6 5-6z"/></svg>
+          <div v-if="helpMenuVisible" class="dropdown-menu" @click.stop>
+            <div class="dropdown-item" @click="goAbout">关于 MDBS</div>
+            <div class="dropdown-item" @click="goShortcuts">快捷键参考</div>
           </div>
         </div>
       </div>
@@ -102,15 +249,20 @@ function confirmExit() { closeMenus(); window.close() }
       </div>
     </header>
 
-    <!-- 1px 分隔线 -->
+    <!-- 分隔线 -->
     <div class="menu-sep"></div>
 
-    <!-- 主区域 -->
-    <div class="main-area">
-      <Sidebar />
-      <main class="workspace">
-        <RouterView />
-      </main>
+    <!-- 主区域（可拖拽分割） -->
+    <div ref="containerRef" class="main-area" :class="{ dragging: isDragging }">
+      <div class="sidebar-wrapper" :style="{ width: splitPos + 'px' }">
+        <Sidebar />
+      </div>
+      <!-- 拖拽手柄 -->
+      <div class="split-handle" @mousedown="onSplitMouseDown"></div>
+      <!-- 工作区 -->
+      <div class="workspace-wrapper">
+        <TabWorkspace />
+      </div>
     </div>
 
     <!-- 底部状态栏 -->
@@ -118,6 +270,12 @@ function confirmExit() { closeMenus(); window.close() }
       <span class="status-text">{{ statusText }}</span>
       <span v-if="statusConn" class="status-conn">{{ statusConn }}</span>
     </footer>
+
+    <!-- 全局对话框 -->
+    <ExportDialog v-model:visible="showExport" />
+    <ImportDialog v-model:visible="showImport" />
+    <BackupDialog v-model:visible="showBackup" />
+    <SyncDialog v-model:visible="showSync" />
   </div>
 </template>
 
@@ -129,9 +287,10 @@ function confirmExit() { closeMenus(); window.close() }
   background: #1e1e1e;
   color: #e0e0e0;
   font-size: 13px;
+  overflow: hidden;
 }
 
-/* 菜单栏 */
+/* ── 菜单栏 ── */
 .menu-bar {
   display: flex;
   justify-content: space-between;
@@ -141,6 +300,7 @@ function confirmExit() { closeMenus(); window.close() }
   background: #3c3f41;
   padding: 0 8px;
   user-select: none;
+  flex-shrink: 0;
 }
 
 .menu-left {
@@ -220,8 +380,10 @@ function confirmExit() { closeMenus(); window.close() }
 .menu-sep {
   height: 1px;
   background: #3c3c3c;
+  flex-shrink: 0;
 }
 
+/* ── 主区域 ── */
 .main-area {
   flex: 1;
   display: flex;
@@ -229,7 +391,31 @@ function confirmExit() { closeMenus(); window.close() }
   min-height: 0;
 }
 
-.workspace {
+.main-area.dragging {
+  cursor: col-resize;
+}
+
+.sidebar-wrapper {
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.split-handle {
+  width: 4px;
+  cursor: col-resize;
+  background: transparent;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 10;
+  transition: background 0.15s;
+}
+
+.split-handle:hover,
+.main-area.dragging .split-handle {
+  background: #0078d4;
+}
+
+.workspace-wrapper {
   flex: 1;
   overflow: hidden;
   display: flex;
@@ -237,6 +423,7 @@ function confirmExit() { closeMenus(); window.close() }
   min-width: 0;
 }
 
+/* ── 状态栏 ── */
 .status-bar {
   display: flex;
   justify-content: space-between;
@@ -248,6 +435,7 @@ function confirmExit() { closeMenus(); window.close() }
   font-size: 12px;
   color: #999999;
   border-top: 1px solid #3c3c3c;
+  flex-shrink: 0;
 }
 
 .status-conn {

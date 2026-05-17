@@ -97,6 +97,49 @@ class Exporter:
         return clean_name[:31].strip()
 
     @staticmethod
+    def _apply_excel_row_height(ws, min_row=1, max_row=None, char_width_factor=1.1):
+        """为工作表中所有数据行设置自适应行高和自动换行。
+
+        遍历指定范围内的行，根据每行中内容最长的单元格来估算需要的行高：
+          - 每行字符数 / 对应列宽 ≈ 包裹行数
+          - 每行按 15pt 计算，最小行高 15pt
+        同时为所有单元格启用 wrap_text + vertical='top' 对齐。
+        """
+        if max_row is None:
+            max_row = ws.max_row
+
+        for row_idx in range(min_row, max_row + 1):
+            max_lines = 1
+            for cell in ws[row_idx]:
+                if cell.value is None:
+                    continue
+                # 获取该列的实际像素宽度（openpyxl 列宽单位 ≈ 字符数）
+                col_letter = openpyxl.utils.get_column_letter(cell.column)
+                col_width = ws.column_dimensions[col_letter].width or 10
+
+                # 估算内容换行行数
+                val = str(cell.value)
+                # 按换行符拆分，取最长片段
+                segments = val.split('\n')
+                for seg in segments:
+                    # 每行能容纳的字符数
+                    chars_per_line = max(1, int(col_width * char_width_factor))
+                    lines = max(1, -(-len(seg) // chars_per_line))  # 向上取整
+                    max_lines = max(max_lines, lines)
+
+            # 设置对齐方式
+            for cell in ws[row_idx]:
+                cell.alignment = Alignment(
+                    wrap_text=True,
+                    vertical='top',
+                    horizontal='left'
+                )
+
+            # 设置行高：每行 15pt，至少 15pt，最多 200pt 防止单行超高
+            row_height = max(15, min(max_lines * 15, 200))
+            ws.row_dimensions[row_idx].height = row_height
+
+    @staticmethod
     def export_table_structure_to_html(structures, file_path):
         """将表结构导出为带模糊搜索功能的 HTML 网页"""
         html_template = """
@@ -447,6 +490,9 @@ class Exporter:
             ]
             ws_rel.append([Exporter._clean_value(v) for v in row_data])
 
+        # 自适应行高
+        Exporter._apply_excel_row_height(ws_dict)
+        Exporter._apply_excel_row_height(ws_rel)
         wb.save(file_path)
 
     @staticmethod
@@ -1035,6 +1081,8 @@ class Exporter:
             column_letter = openpyxl.utils.get_column_letter(col_idx)
             ws.column_dimensions[column_letter].width = 20 # 设置固定宽度后微调
 
+        # 自适应行高
+        Exporter._apply_excel_row_height(ws)
         wb.save(file_path)
 
     @staticmethod
@@ -1086,6 +1134,9 @@ class Exporter:
                         pass
                 ws.column_dimensions[column_letter].width = min(max_length + 2, 50)
 
+        # 自适应行高（遍历所有 Sheet）
+        for ws in wb.worksheets:
+            Exporter._apply_excel_row_height(ws)
         wb.save(file_path)
 
     @staticmethod
@@ -1117,7 +1168,9 @@ class Exporter:
                     conn.get('ssh_key_path', ''), conn.get('ssh_key_phrase', '')
                 ])
             ws.append([Exporter._clean_value(v) for v in row])
-            
+
+        # 自适应行高
+        Exporter._apply_excel_row_height(ws)
         wb.save(file_path)
 
     @staticmethod

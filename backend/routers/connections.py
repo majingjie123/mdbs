@@ -1,8 +1,8 @@
 """连接管理 API"""
 
 from fastapi import APIRouter, Depends
-from dependencies import get_db_storage, get_db_ops
-from schemas import ConnData, ConnectionCreate, ConnectionUpdate, MessageResponse
+from ..dependencies import get_db_storage, get_db_ops
+from ..schemas import ConnData, ConnectionCreate, ConnectionUpdate, MessageResponse
 from models.db_storage import DBStorage
 from core.db_operations import DBOperations
 
@@ -66,6 +66,16 @@ def delete_connection(conn_id: int, storage: DBStorage = Depends(get_db_storage)
     try:
         storage.delete_connection(conn_id)
         return {"success": True, "message": "删除成功"}
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
+
+@router.post("/{conn_id}/disconnect")
+def disconnect_connection(conn_id: int, ops: DBOperations = Depends(get_db_ops)):
+    """断开连接，释放资源"""
+    try:
+        ops.disconnect(conn_id)
+        return {"success": True, "message": "已断开"}
     except Exception as e:
         return {"success": False, "message": str(e)}
 

@@ -1,8 +1,14 @@
 """表结构查询 API"""
 
-from fastapi import APIRouter, Depends
-from dependencies import get_db_storage, get_db_ops
-from schemas import MessageResponse
+from fastapi import APIRouter, Depends, HTTPException
+from ..dependencies import get_db_storage, get_db_ops
+from ..schemas import (
+    MessageResponse,
+    CreateTableParams,
+    AlterColumnParams,
+    DropColumnParams,
+    RenameTableParams,
+)
 from core.db_operations import DBOperations
 from models.db_storage import DBStorage
 
@@ -128,6 +134,23 @@ def list_views(
         return {"success": False, "message": str(e)}
 
 
+@router.get("/{conn_id}/functions")
+def list_functions(
+    conn_id: int,
+    database: str = "",
+    schema: str = "",
+    storage: DBStorage = Depends(get_db_storage),
+    ops: DBOperations = Depends(get_db_ops),
+):
+    """获取函数/存储过程列表"""
+    try:
+        conn_data = _get_conn_data(conn_id, storage)
+        funcs = ops.get_functions(conn_data, database=database or None, schema=schema or None)
+        return {"success": True, "data": funcs}
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
+
 @router.get("/{conn_id}/relations")
 def get_relations(
     conn_id: int,
@@ -140,5 +163,194 @@ def get_relations(
         conn_data = _get_conn_data(conn_id, storage)
         rels = ops.get_relations(conn_data, database=database or None)
         return {"success": True, "data": rels}
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
+
+# ═══════════════════════════════════════════════════════════
+# 表结构修改（DDL）
+# ═══════════════════════════════════════════════════════════
+
+
+@router.post("/{conn_id}/create")
+def create_table(
+    conn_id: int,
+    body: CreateTableParams,
+    storage: DBStorage = Depends(get_db_storage),
+    ops: DBOperations = Depends(get_db_ops),
+):
+    """创建新表"""
+    try:
+        conn_data = _get_conn_data(conn_id, storage)
+        db_type = conn_data.get("db_type", "MySQL")
+
+        col_defs = []
+        for col in body.columns:
+            parts = [f"`{col.name}` {col.type}"]
+            if col.auto_increment and db_type == "MySQL":
+                parts.append("AUTO_INCREMENT")
+            if not col.nullable:
+                parts.append("NOT NULL")
+            if col.default is not None:
+                parts.append(f"DEFAULT {col.default}")
+            if col.primary_key:
+                parts.append("PRIMARY KEY")
+            if col.comment and db_type == "MySQL":
+                col_comment_esc = col.comment.replace("'", "''")
+                parts.append(f"COMMENT '{col_comment_esc}'")
+            col_defs.append(" ".join(parts))
+
+        sql_parts = [f"CREATE TABLE `{body.table_name}` ("]
+        sql_parts.append("  " + ",\n  ".join(col_defs))
+        sql_parts.append(")")
+
+        if db_type == "MySQL":
+            sql_parts.append(f"ENGINE={body.engine}")
+            sql_parts.append(f"DEFAULT CHARSET={body.charset}")
+            if body.comment:
+                comment_esc = body.comment.replace("'", "''")
+                sql_parts.append(f"COMMENT='{comment_esc}'")
+
+        sql = "\n".join(sql_parts)
+
+        ops.execute_sql(conn_data, sql, database=body.database or None)
+        return {"success": True, "message": f"表 {body.table_name} 创建成功"}
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
+
+@router.delete("/{conn_id}/{table_name}")
+def drop_table(
+    conn_id: int,
+    table_name: str,
+    database: str = "",
+    schema: str = "",
+    storage: DBStorage = Depends(get_db_storage),
+    ops: DBOperations = Depends(get_db_ops),
+):
+    """删除表"""
+    try:
+        conn_data = _get_conn_data(conn_id, storage)
+        sql = f"DROP TABLE IF EXISTS `{table_name}`"
+        ops.execute_sql(conn_data, sql, database=database or None)
+        return {"success": True, "message": f"表 {table_name} 已删除"}
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
+
+@router.put("/{conn_id}/{table_name}/rename")
+def rename_table(
+    conn_id: int,
+    table_name: str,
+    body: RenameTableParams,
+    storage: DBStorage = Depends(get_db_storage),
+    ops: DBOperations = Depends(get_db_ops),
+):
+    """重命名表"""
+    try:
+        conn_data = _get_conn_data(conn_id, storage)
+        sql = f"RENAME TABLE `{table_name}` TO `{body.new_name}`"
+        ops.execute_sql(conn_data, sql, database=body.database or None)
+        return {"success": True, "message": f"表已重命名为 {body.new_name}"}
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
+
+@router.post("/{conn_id}/{table_name}/columns")
+def add_column(
+    conn_id: int,
+    table_name: str,
+    body: AlterColumnParams,
+    storage: DBStorage = Depends(get_db_storage),
+    ops: DBOperations = Depends(get_db_ops),
+):
+    """添加列"""
+    try:
+        conn_data = _get_conn_data(conn_id, storage)
+
+        parts = [f"ALTER TABLE `{table_name}` ADD COLUMN `{body.name}` {body.type}"]
+        if not body.nullable:
+            parts.append("NOT NULL")
+        if body.default is not None:
+            parts.append(f"DEFAULT {body.default}")
+        if body.comment and conn_data.get("db_type", "MySQL") == "MySQL":
+            cmt = body.comment.replace("'", "''")
+            parts.append(f"COMMENT '{cmt}'")
+        if body.first:
+            parts.append("FIRST")
+        elif body.after:
+            parts.append(f"AFTER `{body.after}`")
+
+        sql = " ".join(parts)
+        ops.execute_sql(conn_data, sql, database=body.database or None)
+        return {"success": True, "message": f"列 {body.name} 添加成功"}
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
+
+@router.put("/{conn_id}/{table_name}/columns/{column_name}")
+def modify_column(
+    conn_id: int,
+    table_name: str,
+    column_name: str,
+    body: AlterColumnParams,
+    storage: DBStorage = Depends(get_db_storage),
+    ops: DBOperations = Depends(get_db_ops),
+):
+    """修改列定义"""
+    try:
+        conn_data = _get_conn_data(conn_id, storage)
+        db_type = conn_data.get("db_type", "MySQL")
+
+        if db_type == "MySQL":
+            parts = [f"ALTER TABLE `{table_name}` MODIFY COLUMN `{body.name}` {body.type}"]
+        else:
+            parts = [f'ALTER TABLE "{table_name}" ALTER COLUMN "{body.name}" TYPE {body.type}']
+
+        if not body.nullable:
+            if db_type == "MySQL":
+                parts.append("NOT NULL")
+            else:
+                parts.append("SET NOT NULL")
+        if body.default is not None and db_type == "MySQL":
+            parts.append(f"DEFAULT {body.default}")
+        if body.comment and db_type == "MySQL":
+            cmt = body.comment.replace("'", "''")
+            parts.append(f"COMMENT '{cmt}'")
+
+        sql = " ".join(parts)
+        ops.execute_sql(conn_data, sql, database=body.database or None)
+
+        # PostgreSQL 用独立语句设置默认值和注释
+        if db_type != "MySQL":
+            if body.default is not None:
+                sql_default = f'ALTER TABLE "{table_name}" ALTER COLUMN "{body.name}" SET DEFAULT {body.default}'
+                ops.execute_sql(conn_data, sql_default, database=body.database or None)
+            if body.comment:
+                pg_cmt = body.comment.replace("'", "''")
+                sql_comment = f"COMMENT ON COLUMN \"{table_name}\".\"{body.name}\" IS '{pg_cmt}'"
+                ops.execute_sql(conn_data, sql_comment, database=body.database or None)
+
+        return {"success": True, "message": f"列 {body.name} 修改成功"}
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
+
+@router.delete("/{conn_id}/{table_name}/columns/{column_name}")
+def drop_column(
+    conn_id: int,
+    table_name: str,
+    column_name: str,
+    database: str = "",
+    schema: str = "",
+    storage: DBStorage = Depends(get_db_storage),
+    ops: DBOperations = Depends(get_db_ops),
+):
+    """删除列"""
+    try:
+        conn_data = _get_conn_data(conn_id, storage)
+        sql = f"ALTER TABLE `{table_name}` DROP COLUMN `{column_name}`"
+        ops.execute_sql(conn_data, sql, database=database or None)
+        return {"success": True, "message": f"列 {column_name} 已删除"}
     except Exception as e:
         return {"success": False, "message": str(e)}

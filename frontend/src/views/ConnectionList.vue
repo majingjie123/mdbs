@@ -68,7 +68,6 @@ onMounted(load)
       :row-key="(r: any) => r.id"
       :bordered="true"
       striped
-      @update:row-key=""
       style="flex: 1"
     >
       <template #empty>

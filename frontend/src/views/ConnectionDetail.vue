@@ -36,6 +36,40 @@ const formValue = ref({
 
 const saving = ref(false)
 const testing = ref(false)
+const sshTesting = ref(false)
+const keyFileInput = ref<HTMLInputElement | null>(null)
+
+function browseKeyFile() {
+  const input = document.createElement('input')
+  input.type = 'file'
+  input.accept = '.pem,.ppk,.key,*'
+  input.onchange = (e: any) => {
+    const file = e.target?.files?.[0]
+    if (file) {
+      // 浏览器安全限制，不能获取完整路径，只显示文件名
+      formValue.value.ssh_key_path = file.name
+      message.info(`已选择文件: ${file.name}（请在路径中填入完整路径）`)
+    }
+  }
+  input.click()
+}
+
+async function testSshConn() {
+  sshTesting.value = true
+  try {
+    // 使用 testConnection 但只检查 SSH 隧道
+    const res: any = await api.testConnection({ ...formValue.value, database: '' })
+    if (res.success) {
+      message.success('SSH 连接成功！')
+    } else {
+      message.error(`SSH 连接失败: ${res.message}`)
+    }
+  } catch (e: any) {
+    message.error(e.message)
+  } finally {
+    sshTesting.value = false
+  }
+}
 
 const dbTypeOptions = [
   { label: 'MySQL / MariaDB', value: 'MySQL' },
@@ -154,9 +188,14 @@ function remove() {
       </n-form-item>
 
       <n-divider />
-      <n-form-item label="SSH 隧道">
-        <n-switch v-model:value="formValue.ssh_enabled" />
-      </n-form-item>
+      <div class="ssh-header">
+        <n-form-item label="SSH 隧道">
+          <n-switch v-model:value="formValue.ssh_enabled" />
+        </n-form-item>
+        <n-button v-if="formValue.ssh_enabled" size="tiny" :loading="sshTesting" @click="testSshConn" type="primary" ghost>
+          测试 SSH 连接
+        </n-button>
+      </div>
 
       <template v-if="formValue.ssh_enabled">
         <n-form-item label="SSH 主机">
@@ -182,6 +221,7 @@ function remove() {
         </n-form-item>
         <n-form-item v-if="formValue.ssh_auth_type === 'key'" label="私钥路径">
           <n-input v-model:value="formValue.ssh_key_path" placeholder="C:/Users/xxx/.ssh/id_rsa" />
+          <n-button size="tiny" @click="browseKeyFile" style="margin-left: 4px">浏览</n-button>
         </n-form-item>
         <n-form-item v-if="formValue.ssh_auth_type === 'key'" label="私钥密码">
           <n-input v-model:value="formValue.ssh_key_phrase" type="password" show-password-on="click" />
@@ -228,5 +268,11 @@ function remove() {
   display: flex;
   gap: 12px;
   margin-top: 24px;
+}
+
+.ssh-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 </style>

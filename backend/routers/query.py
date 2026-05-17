@@ -2,8 +2,8 @@
 
 import threading
 from fastapi import APIRouter, Depends
-from dependencies import get_db_storage, get_db_ops
-from schemas import ExecuteSQLRequest, BatchSQLRequest, MessageResponse
+from ..dependencies import get_db_storage, get_db_ops
+from ..schemas import ExecuteSQLRequest, BatchSQLRequest, MessageResponse
 from core.db_operations import DBOperations
 from models.db_storage import DBStorage
 
@@ -27,7 +27,7 @@ def execute_sql(
     cancel = threading.Event()
     try:
         conn_data = _get_conn_data(req.conn_id, storage)
-        schema = req.schema if conn_data.get("db_type") == "PostgreSQL" else None
+        schema = req.schema_name if conn_data.get("db_type") == "PostgreSQL" else None
         cols, rows, affected, is_query = ops.execute_sql(
             conn_data,
             req.sql,
@@ -59,7 +59,7 @@ def execute_batch_sql(
     try:
         conn_data = _get_conn_data(req.conn_id, storage)
         sql_list = [(s.sql, s.params) for s in req.sqls]
-        schema = req.schema if conn_data.get("db_type") == "PostgreSQL" else None
+        schema = req.schema_name if conn_data.get("db_type") == "PostgreSQL" else None
         ok, msg = ops.execute_batch_sql(
             conn_data, sql_list, database=req.database, schema=schema
         )

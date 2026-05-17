@@ -7,6 +7,7 @@ import { sql, MySQL } from '@codemirror/lang-sql'
 import { oneDark } from '@codemirror/theme-one-dark'
 import { autocompletion, CompletionContext } from '@codemirror/autocomplete'
 import { defaultKeymap, indentWithTab } from '@codemirror/commands'
+import { searchKeymap } from '@codemirror/search'
 
 const props = withDefaults(defineProps<{
   modelValue: string
@@ -91,26 +92,19 @@ function sqlCompletions(context: CompletionContext) {
   return { from: word.from, options }
 }
 
-// 快捷键：Ctrl+Enter / F5 执行
-const executeKeymap = keymap.of([
-  {
-    key: 'Mod-Enter',
-    run: () => { emit('execute'); return true },
-  },
-  {
-    key: 'F5',
-    run: () => { emit('execute'); return true },
-  },
-])
-
-// Extensions
+// 快捷键：Ctrl+Enter / F5 执行 + 搜索
 const extensions = computed(() => [
   sql({ dialect: MySQL }),
   oneDark,
   EditorView.lineWrapping,
   autocompletion({ override: [sqlCompletions] }),
-  executeKeymap,
-  keymap.of([indentWithTab, ...defaultKeymap]),
+  keymap.of([
+    { key: 'Mod-Enter', run: () => { emit('execute'); return true } },
+    { key: 'F5', run: () => { emit('execute'); return true } },
+    ...searchKeymap,
+    indentWithTab,
+    ...defaultKeymap,
+  ]),
 ])
 </script>
 

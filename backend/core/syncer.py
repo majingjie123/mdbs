@@ -9,19 +9,24 @@ import pg8000.native
 from core.ssh_manager import SSHTunnelManager
 
 class DatabaseSyncer:
-    def __init__(self, source_conn_data, target_conn_data, options, progress_callback, cancel_event):
+    def __init__(self, source_conn_data, target_conn_data, options, progress_callback, cancel_event,
+                 source_db=None, target_db=None):
         """
         :param source_conn_data: 源连接配置 (已解密)
         :param target_conn_data: 目标连接配置 (已解密)
         :param options: 同步选项 {tables: [], sync_structure: bool, sync_data: bool, conflict_strategy: str}
         :param progress_callback: 回调函数 (event_type, data)
         :param cancel_event: threading.Event
+        :param source_db: 源数据库名（覆盖连接配置中的默认库）
+        :param target_db: 目标数据库名（覆盖连接配置中的默认库）
         """
         self.source_data = source_conn_data
         self.target_data = target_conn_data
         self.options = options
         self.progress_callback = progress_callback
         self.cancel_event = cancel_event
+        self.source_db = source_db or source_conn_data.get('database', '')
+        self.target_db = target_db or target_conn_data.get('database', '')
         
         self.ssh_manager = SSHTunnelManager()
         self.log_file = None
@@ -61,11 +66,11 @@ class DatabaseSyncer:
         try:
             # 1. 建立连接 (含 SSH)
             self._log("正在连接源数据库...")
-            source_conn = self._get_connection(self.source_data)
+            source_conn = self._get_connection(self.source_data, self.source_db)
             self._log("源数据库连接成功")
             
             self._log("正在连接目标数据库...")
-            target_conn = self._get_connection(self.target_data)
+            target_conn = self._get_connection(self.target_data, self.target_db)
             self._log("目标数据库连接成功")
             
             # 2. 循环处理每个表
@@ -116,7 +121,7 @@ class DatabaseSyncer:
             if target_conn: self._close_connection(target_conn, self.target_data)
             if self.log_file: self.log_file.close()
 
-    def _get_connection(self, conn_data):
+    def _get_connection(self, conn_data, database=None):
         db_type = conn_data.get('db_type', 'MySQL')
         host = conn_data['host']
         port = int(conn_data['port'])
@@ -124,12 +129,15 @@ class DatabaseSyncer:
         if conn_data.get('ssh_enabled'):
             host, port = self.ssh_manager.start_tunnel(conn_data)
             
+        # 使用传入的 database 覆盖连接配置中的默认库
+        db_name = database or conn_data.get('database', '')
+            
         if db_type == "MySQL":
             # 开启自动重连、增加超时到 60s
             return pymysql.connect(
                 host=host, port=port,
                 user=conn_data['user'], password=conn_data.get('password'),
-                database=conn_data.get('database'),
+                database=db_name,
                 connect_timeout=60, charset='utf8mb4',
                 autocommit=True, # 同步时实时提交
                 cursorclass=pymysql.cursors.DictCursor
@@ -138,7 +146,7 @@ class DatabaseSyncer:
             return pg8000.native.Connection(
                 user=conn_data['user'], password=conn_data.get('password'),
                 host=host, port=port,
-                database=conn_data.get('database'),
+                database=db_name,
                 timeout=60
             )
 
