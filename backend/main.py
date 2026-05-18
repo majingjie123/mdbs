@@ -1,7 +1,7 @@
 """MDBS FastAPI 后端入口
 
 启动命令::
-    cd backend && uvicorn main:app --host 127.0.0.1 --port 18080 --reload
+    python -m uvicorn backend.main:app --host 127.0.0.1 --port 18080 --reload
 
 生产部署 (打包后):
     run_backend.py  (自动加载同目录下的 frontend/dist 静态文件)

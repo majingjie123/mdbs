@@ -1,13 +1,11 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { useRouter } from 'vue-router'
 import { useMessage, useDialog } from 'naive-ui'
 import { useAppStore } from '../stores/app'
 import { api } from '../api'
 import SyncDialog from './dialogs/SyncDialog.vue'
 import ImportDialog from './dialogs/ImportDialog.vue'
 
-const router = useRouter()
 const message = useMessage()
 const dialog = useDialog()
 const store = useAppStore()
@@ -276,8 +274,33 @@ async function onExpand(node: TreeNode) {
 
 // ── 选择节点事件（单击） ──
 function onSelect(keys: string[]) {
-  if (keys.length === 0) { selectedKey.value = null; return }
+  if (keys.length === 0) {
+    selectedKey.value = null
+    store.clearSelectedNode()
+    return
+  }
   selectedKey.value = keys[0]
+
+  // 查找选中的节点
+  const findNode = (nodes: TreeNode[]): TreeNode | null => {
+    for (const n of nodes) {
+      if (n.key === keys[0]) return n
+      if (n.children) { const f = findNode(n.children); if (f) return f }
+    }
+    return null
+  }
+  const node = findNode(treeData.value)
+  if (node) {
+    const connData = store.connections.find((c: any) => c.id === node.connId)
+    store.updateSelectedNode({
+      connId: node.connId || null,
+      connName: connData?.name || '',
+      dbName: node.dbName || '',
+      schemaName: node.schemaName || '',
+      tableName: node.rawData?.name || '',
+      nodeType: node.nodeType || '',
+    })
+  }
 }
 
 // ── 双击节点事件 ──
@@ -389,7 +412,7 @@ function handleCtxAction(action: string | undefined) {
       onExpand(node)
       break
     case 'edit-connection':
-      router.push(`/connections/${connId}?edit=1`)
+      store.openTab('connection-detail', `编辑 - ${node.label}`, { id: connId, edit: 1 }, true)
       break
     case 'delete-connection':
       dialog.warning({
@@ -629,23 +652,6 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
       />
     </div>
 
-    <!-- AI 入口 -->
-    <div v-show="!collapsed" class="sidebar-footer">
-      <div class="sidebar-footer-btn" @click="store.openTab('ai-chat', 'AI 助手', { connId: store.currentConnId })">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M12 2a2 2 0 0 1 2 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 0 1 7 7h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1.27A7.02 7.02 0 0 1 13 23h-2a7.02 7.02 0 0 1-6.73-5H3a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h1a7 7 0 0 1 7-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 0 1 2-2z"/>
-        </svg>
-        <span>AI 助手</span>
-      </div>
-      <div class="sidebar-footer-btn" @click="router.push('/ai/settings')">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="3"/>
-          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-        </svg>
-        <span>AI 设置</span>
-      </div>
-    </div>
-
     <!-- 创建数据库对话框 -->
     <n-modal v-model:show="showCreateDbDialog" title="创建数据库" preset="card" style="width: 400px">
       <n-input v-model:value="newDbName" placeholder="输入数据库名称" />
@@ -739,31 +745,7 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
   min-height: 0;
 }
 
-/* 底部入口 */
-.sidebar-footer {
-  border-top: 1px solid #3c3c3c;
-  padding: 4px 8px;
-  flex-shrink: 0;
-}
-
-.sidebar-footer-btn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 8px;
-  cursor: pointer;
-  border-radius: 4px;
-  color: #999;
-  font-size: 12px;
-  transition: background 0.15s, color 0.15s;
-}
-
-.sidebar-footer-btn:hover {
-  background: #3c3c3c;
-  color: #4fc3f7;
-}
-
-/* 右键菜单（用 :global() 确保 teleport 到 body 的样式生效） */
+/* 右键菜单（用 :global() 确保 teleport 到 body 的样式生效）*/
 :global(.context-menu) {
   position: fixed;
   z-index: 9999;

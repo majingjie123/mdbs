@@ -1,16 +1,38 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
 import { api } from '../api'
 import { useMessage, useDialog } from 'naive-ui'
+import { useAppStore } from '../stores/app'
 
-const route = useRoute()
-const router = useRouter()
+const props = defineProps<{
+  id?: number
+  edit?: number
+}>()
+
 const message = useMessage()
 const dialog = useDialog()
+const store = useAppStore()
 
-const connId = computed(() => parseInt(route.params.id as string))
+const connId = computed(() => props.id ?? 0)
 const isNew = computed(() => connId.value === 0)
+
+const rules = {
+  name: {
+    required: true,
+    message: '请输入连接名称',
+    trigger: ['blur', 'input'],
+  },
+  host: {
+    required: true,
+    message: '请输入主机地址',
+    trigger: ['blur', 'input'],
+  },
+  user: {
+    required: true,
+    message: '请输入用户名',
+    trigger: ['blur', 'input'],
+  },
+}
 
 const formRef = ref()
 const formValue = ref({
@@ -122,6 +144,11 @@ async function testConn() {
 }
 
 async function save() {
+  try {
+    await formRef.value?.validate()
+  } catch {
+    return
+  }
   saving.value = true
   try {
     if (isNew.value) {
@@ -131,7 +158,8 @@ async function save() {
       await api.updateConnection(connId.value, formValue.value)
       message.success('更新成功')
     }
-    router.push('/connections')
+    await store.loadConnections()
+    store.openTab('connection-list', '连接管理', {}, false)
   } catch (e: any) {
     message.error(e.message)
   } finally {
@@ -146,9 +174,11 @@ function remove() {
     positiveText: '删除',
     negativeText: '取消',
     onPositiveClick: async () => {
+      store.closeTabsByConnId(connId.value)
       await api.deleteConnection(connId.value)
       message.success('已删除')
-      router.push('/connections')
+      await store.loadConnections()
+      store.openTab('connection-list', '连接管理', {}, false)
     },
   })
 }
@@ -159,12 +189,12 @@ function remove() {
     <div class="page-header">
       <h2>{{ isNew ? '新建连接' : '编辑连接' }}</h2>
       <n-space>
-        <n-button @click="router.push('/connections')">返回</n-button>
+        <n-button @click="store.openTab('connection-list', '连接管理', {}, false)">返回</n-button>
         <n-button v-if="!isNew" type="error" @click="remove">删除</n-button>
       </n-space>
     </div>
 
-    <n-form ref="formRef" :model="formValue" label-placement="left" label-width="120" class="form">
+    <n-form ref="formRef" :model="formValue" :rules="rules" label-placement="left" label-width="120" class="form">
       <n-form-item label="连接名称" path="name">
         <n-input v-model:value="formValue.name" placeholder="给连接起个名字" />
       </n-form-item>

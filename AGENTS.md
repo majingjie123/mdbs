@@ -6,20 +6,20 @@
 
 ### 技术栈
 
-| 层级 | 技术/库 |
-|------|---------|
-| **后端框架** | FastAPI (Uvicorn) |
-| **前端框架** | Vue 3 + TypeScript + Vite |
-| **UI 组件库** | Naive UI |
-| **状态管理** | Pinia |
-| **路由** | Vue Router (Hash 模式) |
-| **SQL 编辑器** | CodeMirror 6 + vue-codemirror |
-| **数据库驱动** | pymysql (MySQL), pg8000 (PostgreSQL) |
-| **SSH 隧道** | sshtunnel, paramiko |
-| **AI 集成** | openai >= 1.0.0 |
-| **数据导出** | openpyxl (Excel), fpdf2 (PDF), sqlparse |
-| **加密** | cryptography (Fernet AES) |
-| **打包** | PyInstaller (后端 Server EXE) |
+| 层级          | 技术/库                                    |
+| ----------- | --------------------------------------- |
+| **后端框架**    | FastAPI (Uvicorn)                       |
+| **前端框架**    | Vue 3 + TypeScript + Vite               |
+| **UI 组件库**  | Naive UI                                |
+| **状态管理**    | Pinia                                   |
+| **路由**      | Vue Router (Hash 模式)                    |
+| **SQL 编辑器** | CodeMirror 6 + vue-codemirror           |
+| **数据库驱动**   | pymysql (MySQL), pg8000 (PostgreSQL)    |
+| **SSH 隧道**  | sshtunnel, paramiko                     |
+| **AI 集成**   | openai >= 1.0.0                         |
+| **数据导出**    | openpyxl (Excel), fpdf2 (PDF), sqlparse |
+| **加密**      | cryptography (Fernet AES)               |
+| **打包**      | PyInstaller (后端 Server EXE)             |
 
 ---
 
@@ -151,11 +151,11 @@ python scripts/build_backend_exe.py
 
 ### 数据存储
 
-| 文件/目录 | 说明 |
-|----------|------|
+| 文件/目录            | 说明                                    |
+| ---------------- | ------------------------------------- |
 | `connections.db` | SQLite 数据库，存储连接配置、SQL 历史、同步日志 (密码已加密) |
-| `secret.key` | 本地唯一根密钥 (AES Fernet) |
-| `sync_logs/` | 同步任务日志目录 |
+| `secret.key`     | 本地唯一根密钥 (AES Fernet)                  |
+| `sync_logs/`     | 同步任务日志目录                              |
 
 ---
 
@@ -231,27 +231,27 @@ python scripts/build_backend_exe.py
 
 ## API 路由一览
 
-| 前缀 | 功能 |
-|------|------|
-| `/api/health` | 健康检查 |
-| `/api/connections` | 连接管理 CRUD |
-| `/api/databases` | 数据库列表/创建/删除 |
-| `/api/tables` | 表结构/数据/索引 |
-| `/api/query` | SQL 执行与结果分页 |
-| `/api/backup` | 备份与恢复 |
-| `/api/export` | 多格式数据导出 |
-| `/api/import` | 数据导入 |
-| `/api/sync` | 同步任务管理 |
-| `/api/ai` | AI 智能对话 (SSE 流式) |
+| 前缀                 | 功能               |
+| ------------------ | ---------------- |
+| `/api/health`      | 健康检查             |
+| `/api/connections` | 连接管理 CRUD        |
+| `/api/databases`   | 数据库列表/创建/删除      |
+| `/api/tables`      | 表结构/数据/索引        |
+| `/api/query`       | SQL 执行与结果分页      |
+| `/api/backup`      | 备份与恢复            |
+| `/api/export`      | 多格式数据导出          |
+| `/api/import`      | 数据导入             |
+| `/api/sync`        | 同步任务管理           |
+| `/api/ai`          | AI 智能对话 (SSE 流式) |
 
 ---
 
 ## 快捷键参考 (前端)
 
-| 快捷键 | 功能 |
-|--------|------|
+| 快捷键                 | 功能       |
+| ------------------- | -------- |
 | `F5` / `Ctrl+Enter` | 执行当前 SQL |
-| `Ctrl+S` | 保存草稿 |
+| `Ctrl+S`            | 保存草稿     |
 
 ---
 

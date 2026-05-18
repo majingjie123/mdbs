@@ -18,7 +18,7 @@
     <!-- Add/Edit dialog -->
     <n-modal v-model:show="showAddDialog" title="AI 配置" preset="card" style="width: 500px" :mask-closable="false">
       <n-form ref="formRef" :model="formData" label-placement="left" label-width="100">
-        <n-form-item label="名称" path="name" rule="required">
+        <n-form-item label="名称" path="name" :rule="{ required: true, message: '请输入配置名称', trigger: ['blur', 'input'] }">
           <n-input v-model:value="formData.name" placeholder="配置名称" />
         </n-form-item>
         <n-form-item label="API Key">
@@ -28,7 +28,17 @@
           <n-input v-model:value="formData.base_url" placeholder="https://api.openai.com/v1" />
         </n-form-item>
         <n-form-item label="模型">
-          <n-auto-complete v-model:value="formData.model" :options="modelSuggestions" placeholder="gpt-3.5-turbo" />
+          <div style="display: flex; align-items: center; gap: 6px; width: 100%">
+            <n-auto-complete v-model:value="formData.model" :options="modelSuggestions" placeholder="gpt-3.5-turbo" style="flex: 1" />
+            <n-button size="tiny" quaternary @click="refreshModels" :loading="refreshingModels" title="刷新模型列表">
+              <template #icon>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" :class="{ spinning: refreshingModels }">
+                  <polyline points="23 4 23 10 17 10"/>
+                  <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+                </svg>
+              </template>
+            </n-button>
+          </div>
         </n-form-item>
         <n-form-item label="Temperature">
           <n-slider v-model:value="formData.temperature" :min="0" :max="2" :step="0.1" style="width: 200px" />
@@ -61,7 +71,7 @@
 import { ref, onMounted, h } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMessage, useDialog } from 'naive-ui'
-import type { DataTableColumn } from 'naive-ui'
+import type { DataTableColumn, FormInst } from 'naive-ui'
 import { api } from '../api'
 
 const router = useRouter()
@@ -85,12 +95,39 @@ const formData = ref({
   is_default: false,
 })
 
+const formRef = ref<FormInst | null>(null)
 const modelSuggestions = ref([
   'gpt-3.5-turbo', 'gpt-4', 'gpt-4-turbo', 'gpt-4o', 'gpt-4o-mini',
   'gpt-4.1', 'gpt-4.1-mini', 'gpt-4.1-nano',
   'deepseek-chat', 'deepseek-reasoner',
   'claude-3-opus-20240229', 'claude-3-sonnet-20240229',
 ])
+
+const refreshingModels = ref(false)
+
+async function refreshModels() {
+  if (!formData.value.base_url || !formData.value.api_key) {
+    message.warning('请先填写 Base URL 和 API Key')
+    return
+  }
+  refreshingModels.value = true
+  try {
+    const res: any = await api.aiListModels(formData.value.api_key, formData.value.base_url)
+    if (res.success && Array.isArray(res.data)) {
+      modelSuggestions.value = res.data
+      if (res.data.length > 0 && !formData.value.model) {
+        formData.value.model = res.data[0]
+      }
+      message.success(`获取到 ${res.data.length} 个模型`)
+    } else {
+      message.error(res.message || '获取模型列表失败')
+    }
+  } catch (e: any) {
+    message.error('获取模型列表失败: ' + (e.message || ''))
+  } finally {
+    refreshingModels.value = false
+  }
+}
 
 const columns: DataTableColumn[] = [
   { title: '名称', key: 'name', width: 120 },
@@ -137,8 +174,9 @@ function editConfig(row: any) {
 }
 
 async function saveConfig() {
-  if (!formData.value.name) {
-    message.warning('请输入配置名称')
+  try {
+    await formRef.value?.validate()
+  } catch {
     return
   }
   try {
@@ -246,5 +284,14 @@ onMounted(() => {
 <style scoped>
 .ai-settings-page {
   padding: 16px;
+}
+
+.spinning {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 </style>

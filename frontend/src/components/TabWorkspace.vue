@@ -14,6 +14,8 @@ const componentMap: Record<string, any> = {
   'table-browser': markRaw(defineAsyncComponent(() => import('../views/TableBrowser.vue'))),
   'ai-chat': markRaw(defineAsyncComponent(() => import('../views/AIChat.vue'))),
   'connection-list': markRaw(defineAsyncComponent(() => import('../views/ConnectionList.vue'))),
+  'connection-detail': markRaw(defineAsyncComponent(() => import('../views/ConnectionDetail.vue'))),
+  'ai-settings': markRaw(defineAsyncComponent(() => import('../views/AISettingsPage.vue'))),
 }
 
 // ── 右键菜单 ──
@@ -96,7 +98,7 @@ function onTabMouseDown(e: MouseEvent, tab: TabItem) {
             <polyline points="10 9 9 9 8 9"/>
           </svg>
           <p>选择数据库连接或双击表名开始工作</p>
-          <n-button size="small" @click="router.push('/connections')">打开连接列表</n-button>
+          <n-button size="small" @click="store.openTab('connection-list', '连接管理', {}, false)">打开连接列表</n-button>
         </div>
       </div>
     </div>

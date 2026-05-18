@@ -1,19 +1,33 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, onMounted, h } from 'vue'
 import { useAppStore } from '../stores/app'
 import { api } from '../api'
 import type { ConnInfo } from '../api'
 import type { DataTableColumn } from 'naive-ui'
+import { NButton } from 'naive-ui'
 
-const router = useRouter()
 const store = useAppStore()
 
 const data = ref<(ConnInfo & { _loading?: boolean })[]>([])
 const loading = ref(false)
 
+function goDetail(row: any) {
+  store.openTab('connection-detail', `连接详情 - ${row.name}`, { id: row.id, edit: 0 }, true)
+}
+
+function goWorkbench(row: any) {
+  store.openTab('sql-workbench', `${row.name} - 工作台`, { connId: row.id }, true)
+}
+
 const columns: DataTableColumn[] = [
-  { title: '名称', key: 'name', width: 160 },
+  {
+    title: '名称', key: 'name', width: 160,
+    render: (row: any) => h(NButton, {
+      text: true,
+      type: 'primary',
+      onClick: () => goWorkbench(row),
+    }, { default: () => row.name }),
+  },
   { title: '类型', key: 'db_type', width: 100 },
   { title: '主机', key: 'host', width: 140 },
   { title: '端口', key: 'port', width: 80 },
@@ -32,21 +46,14 @@ async function load() {
   }
 }
 
-function goDetail(row: any) {
-  router.push(`/connections/${row.id}`)
-}
-
-function goWorkbench(row: any) {
-  router.push(`/workbench/${row.id}`)
-}
-
 async function remove(id: number) {
+  store.closeTabsByConnId(id)
   await api.deleteConnection(id)
   await load()
 }
 
 function edit(row: any) {
-  router.push(`/connections/${row.id}?edit=1`)
+  store.openTab('connection-detail', `编辑 - ${row.name}`, { id: row.id, edit: 1 }, true)
 }
 
 onMounted(load)
@@ -56,7 +63,7 @@ onMounted(load)
   <div class="page">
     <div class="page-header">
       <h2>连接管理</h2>
-      <n-button type="primary" @click="router.push('/connections/0?edit=1')">
+      <n-button type="primary" @click="store.openTab('connection-detail', '新建连接', { id: 0, edit: 1 }, true)">
         新建连接
       </n-button>
     </div>

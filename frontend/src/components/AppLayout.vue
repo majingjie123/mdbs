@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, provide } from 'vue'
+import { ref, provide, defineAsyncComponent } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMessage, useDialog } from 'naive-ui'
 import { useAppStore } from '../stores/app'
@@ -15,6 +15,9 @@ const message = useMessage()
 const dialog = useDialog()
 const store = useAppStore()
 
+// 动态加载 AIChat 组件
+const AIChat = defineAsyncComponent(() => import('../views/AIChat.vue'))
+
 // 菜单状态
 const fileMenuVisible = ref(false)
 const toolsMenuVisible = ref(false)
@@ -28,12 +31,20 @@ const showImport = ref(false)
 const showBackup = ref(false)
 const showSync = ref(false)
 
+// AI 助手右侧面板
+const aiPanelExpanded = ref(false)
+
 // 状态栏
 const statusText = ref('就绪')
 const statusConn = ref('')
 
 provide('statusText', statusText)
 provide('statusConn', statusConn)
+
+// 切换 AI 面板
+function toggleAIPanel() {
+  aiPanelExpanded.value = !aiPanelExpanded.value
+}
 
 // ── 分割面板 ──
 const splitPos = ref(260)
@@ -118,7 +129,7 @@ function closeMenus() {
 // 文件菜单操作
 function goNewConnection() {
   closeMenus()
-  router.push('/connections/0?edit=1')
+  store.openTab('connection-detail', '新建连接', { id: 0, edit: 1 }, true)
 }
 
 function goImport() { closeMenus(); showImport.value = true }
@@ -127,10 +138,17 @@ function goBackupRestore() { closeMenus(); showBackup.value = true }
 function goSync() { closeMenus(); showSync.value = true }
 function goSyncHistory() { closeMenus(); showSync.value = true }
 function goSettings() { closeMenus(); router.push('/settings') }
-function goAISettings() { closeMenus(); router.push('/ai/settings') }
+function goAISettings() { closeMenus(); store.openTab('ai-settings', 'AI 设置', {}, true) }
 function goAIChat() {
   closeMenus()
-  store.openTab('ai-chat', 'AI 助手', { connId: store.currentConnId })
+  store.openTab('ai-chat', 'AI 助手', {
+    connId: store.selectedNode.connId,
+    dbName: store.selectedNode.dbName,
+    schemaName: store.selectedNode.schemaName,
+    tableName: store.selectedNode.tableName,
+    nodeType: store.selectedNode.nodeType,
+    connName: store.selectedNode.connName,
+  })
 }
 function confirmExit() { closeMenus(); window.close() }
 
@@ -207,9 +225,6 @@ function goShortcuts() {
             <div class="dropdown-item" @click="goSync">数据库同步</div>
             <div class="dropdown-item" @click="goSync">同步表结构</div>
             <div class="dropdown-item" @click="goSyncHistory">同步历史记录</div>
-            <div class="dropdown-separator"></div>
-            <div class="dropdown-item" @click="goAIChat">AI 对话</div>
-            <div class="dropdown-item" @click="goAISettings">AI 设置</div>
           </div>
         </div>
         <div class="menu-item" @click="toggleEditMenu">
@@ -262,6 +277,29 @@ function goShortcuts() {
       <!-- 工作区 -->
       <div class="workspace-wrapper">
         <TabWorkspace />
+      </div>
+      <!-- AI 切换竖条 -->
+      <div class="ai-toggle-strip" :class="{ active: aiPanelExpanded }" @click="toggleAIPanel" title="AI 助手">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+          <path d="M8 1a7 7 0 100 14A7 7 0 008 1zM6.5 5.5a1.5 1.5 0 113 0 1.5 1.5 0 01-3 0zM9.5 8a.5.5 0 01.5.5v3a.5.5 0 01-1 0v-3a.5.5 0 01.5-.5zM8 11c-1.657 0-3 1.343-3 3h6c0-1.657-1.343-3-3-3z"/>
+        </svg>
+      </div>
+      <!-- 右侧 AI 面板 -->
+      <div class="ai-panel" :class="{ expanded: aiPanelExpanded }">
+        <div class="ai-panel-header">
+          <span>AI 助手</span>
+          <button class="ai-panel-close" @click="aiPanelExpanded = false">×</button>
+        </div>
+        <div class="ai-panel-content">
+          <AIChat
+            :conn-id="store.selectedNode.connId"
+            :db-name="store.selectedNode.dbName"
+            :schema-name="store.selectedNode.schemaName"
+            :table-name="store.selectedNode.tableName"
+            :node-type="store.selectedNode.nodeType"
+            :conn-name="store.selectedNode.connName"
+          />
+        </div>
       </div>
     </div>
 
@@ -440,5 +478,93 @@ function goShortcuts() {
 
 .status-conn {
   color: #6a9955;
+}
+
+/* ── AI 切换竖条 ── */
+.ai-toggle-strip {
+  width: 0;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #888;
+  background: #252526;
+  border-left: 1px solid #3c3c3c;
+  transition: width 0.2s ease, color 0.15s, background 0.15s;
+  writing-mode: vertical-lr;
+  user-select: none;
+  overflow: hidden;
+}
+
+.ai-toggle-strip:hover {
+  width: 22px;
+  color: #4fc3f7;
+  background: #2d2d2d;
+}
+
+.ai-toggle-strip.active {
+  width: 22px;
+  color: #4fc3f7;
+  background: #1e1e1e;
+  border-left-color: #4fc3f7;
+}
+
+/* ── AI 面板 ── */
+.ai-panel {
+  width: 0;
+  flex-shrink: 0;
+  overflow: hidden;
+  background: #1e1e1e;
+  border-left: 1px solid #3c3c3c;
+  display: flex;
+  flex-direction: column;
+  transition: width 0.2s ease;
+}
+
+.ai-panel.expanded {
+  width: 400px;
+  min-width: 300px;
+  max-width: 600px;
+}
+
+.ai-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: #252526;
+  border-bottom: 1px solid #3c3c3c;
+  font-size: 12px;
+  font-weight: 600;
+  color: #cccccc;
+  flex-shrink: 0;
+}
+
+.ai-panel-close {
+  background: none;
+  border: none;
+  color: #888;
+  cursor: pointer;
+  font-size: 16px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  line-height: 1;
+}
+
+.ai-panel-close:hover {
+  background: #3c3c3c;
+  color: #fff;
+}
+
+.ai-panel-content {
+  flex: 1;
+  overflow: hidden;
+}
+
+/* 菜单图标激活状态 */
+.menu-icon-btn.active {
+  background: #4c4f51;
+  color: #0078d4;
 }
 </style>

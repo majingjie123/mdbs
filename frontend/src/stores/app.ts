@@ -5,9 +5,19 @@ import { api } from '../api'
 export interface TabItem {
   id: string
   title: string
-  type: 'sql-workbench' | 'table-browser' | 'ai-chat' | 'connection-list'
+  type: 'sql-workbench' | 'table-browser' | 'ai-chat' | 'ai-settings' | 'connection-list' | 'connection-detail'
   props: Record<string, any>
   closable: boolean
+}
+
+// 侧边栏选中节点信息
+export interface SidebarNodeInfo {
+  connId: number | null
+  connName: string
+  dbName: string
+  schemaName: string
+  tableName: string
+  nodeType: string
 }
 
 export const useAppStore = defineStore('app', () => {
@@ -15,6 +25,16 @@ export const useAppStore = defineStore('app', () => {
   const currentConnId = ref<number | null>(null)
   const currentDb = ref('')
   const sidebarExpanded = ref(true)
+
+  // 侧边栏当前选中的节点信息
+  const selectedNode = ref<SidebarNodeInfo>({
+    connId: null,
+    connName: '',
+    dbName: '',
+    schemaName: '',
+    tableName: '',
+    nodeType: '',
+  })
 
   // ── 标签页管理 ──
   const tabs = ref<TabItem[]>([])
@@ -35,6 +55,23 @@ export const useAppStore = defineStore('app', () => {
 
   function selectConnection(id: number) {
     currentConnId.value = id
+  }
+
+  // 更新侧边栏选中的节点
+  function updateSelectedNode(node: Partial<SidebarNodeInfo>) {
+    selectedNode.value = { ...selectedNode.value, ...node }
+  }
+
+  // 清除选中节点
+  function clearSelectedNode() {
+    selectedNode.value = {
+      connId: null,
+      connName: '',
+      dbName: '',
+      schemaName: '',
+      tableName: '',
+      nodeType: '',
+    }
   }
 
   // ── 标签页操作 ──
@@ -95,6 +132,13 @@ export const useAppStore = defineStore('app', () => {
     activeTabId.value = null
   }
 
+  function closeTabsByConnId(connId: number) {
+    const toClose = tabs.value.filter((t) => t.props?.connId === connId)
+    for (const tab of toClose) {
+      closeTab(tab.id)
+    }
+  }
+
   function activateTab(id: string) {
     if (tabs.value.find((t) => t.id === id)) {
       activeTabId.value = id
@@ -107,6 +151,7 @@ export const useAppStore = defineStore('app', () => {
     currentDb,
     sidebarExpanded,
     currentConn,
+    selectedNode,
     // 标签页
     tabs,
     activeTabId,
@@ -114,10 +159,13 @@ export const useAppStore = defineStore('app', () => {
     // 方法
     loadConnections,
     selectConnection,
+    updateSelectedNode,
+    clearSelectedNode,
     openTab,
     closeTab,
     closeOtherTabs,
     closeAllTabs,
+    closeTabsByConnId,
     activateTab,
   }
 })
