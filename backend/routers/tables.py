@@ -151,6 +151,61 @@ def list_functions(
         return {"success": False, "message": str(e)}
 
 
+@router.get("/{conn_id}/views/{view_name}/ddl")
+def get_view_ddl(
+    conn_id: int,
+    view_name: str,
+    database: str = "",
+    schema: str = "",
+    storage: DBStorage = Depends(get_db_storage),
+    ops: DBOperations = Depends(get_db_ops),
+):
+    """获取视图 DDL 定义"""
+    try:
+        conn_data = _get_conn_data(conn_id, storage)
+        ddl = ops.get_view_ddl(conn_data, view_name, database=database or None)
+        return {"success": True, "data": ddl}
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
+
+@router.get("/{conn_id}/functions/{func_name}/ddl")
+def get_function_ddl(
+    conn_id: int,
+    func_name: str,
+    func_type: str = "FUNCTION",
+    database: str = "",
+    schema: str = "",
+    storage: DBStorage = Depends(get_db_storage),
+    ops: DBOperations = Depends(get_db_ops),
+):
+    """获取函数/存储过程 DDL 定义"""
+    try:
+        conn_data = _get_conn_data(conn_id, storage)
+        ddl = ops.get_function_ddl(conn_data, func_name, func_type, database=database or None)
+        return {"success": True, "data": ddl}
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
+
+@router.get("/{conn_id}/functions/{func_name}/metadata")
+def get_function_metadata(
+    conn_id: int,
+    func_name: str,
+    database: str = "",
+    schema: str = "",
+    storage: DBStorage = Depends(get_db_storage),
+    ops: DBOperations = Depends(get_db_ops),
+):
+    """获取函数/存储过程详细元数据"""
+    try:
+        conn_data = _get_conn_data(conn_id, storage)
+        meta = ops.get_function_metadata(conn_data, func_name, database=database or None)
+        return {"success": True, "data": meta}
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
+
 @router.get("/{conn_id}/relations")
 def get_relations(
     conn_id: int,

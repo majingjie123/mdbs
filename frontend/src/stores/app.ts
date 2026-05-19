@@ -5,7 +5,7 @@ import { api } from '../api'
 export interface TabItem {
   id: string
   title: string
-  type: 'sql-workbench' | 'table-browser' | 'ai-chat' | 'ai-settings' | 'connection-list' | 'connection-detail'
+  type: 'sql-workbench' | 'table-browser' | 'ai-chat' | 'ai-settings' | 'connection-list' | 'connection-detail' | 'view-manager' | 'function-manager' | 'settings'
   props: Record<string, any>
   closable: boolean
 }
@@ -25,6 +25,9 @@ export const useAppStore = defineStore('app', () => {
   const currentConnId = ref<number | null>(null)
   const currentDb = ref('')
   const sidebarExpanded = ref(true)
+
+  // 主题
+  const themeId = ref('dark')
 
   // 侧边栏当前选中的节点信息
   const selectedNode = ref<SidebarNodeInfo>({
@@ -167,5 +170,6 @@ export const useAppStore = defineStore('app', () => {
     closeAllTabs,
     closeTabsByConnId,
     activateTab,
+    themeId,
   }
 })

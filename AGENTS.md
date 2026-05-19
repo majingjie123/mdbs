@@ -118,14 +118,14 @@ DBConnectorManager/
 # 1. 后端启动
 cd backend
 pip install -r requirements.txt
-uvicorn main:app --host 127.0.0.1 --port 18080 --reload
+uvicorn main:app --host 127.0.0.1 --port 18081 --reload
 
 # 2. 前端启动 (新终端)
 cd frontend
 npm install
 npm run dev
 
-# 访问: http://localhost:5173 (Vite 开发服务器自动代理 API 到 18080)
+# 访问: http://localhost:5173 (Vite 开发服务器自动代理 API 到 18081)
 ```
 
 ### 生产模式运行 (后端打包前端静态文件)
@@ -139,7 +139,7 @@ npm run build
 cd ..
 python scripts/run_backend.py
 
-# 访问: http://127.0.0.1:18080/
+# 访问: http://127.0.0.1:18081/
 ```
 
 ### 打包为独立 EXE
@@ -266,7 +266,7 @@ pip install -r backend/requirements.txt
 
 ### 2. 前端开发服务器无法连接后端
 
-- 确认后端已在 `127.0.0.1:18080` 启动
+- 确认后端已在 `127.0.0.1:18081` 启动
 - Vite 配置已自动代理 `/api` 到后端
 
 ### 3. SSH 隧道连接失败

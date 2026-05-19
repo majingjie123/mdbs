@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, h } from 'vue'
+import { ref, computed, h, onMounted, onUnmounted } from 'vue'
 import { api, ExecResult } from '../api'
 import { useMessage } from 'naive-ui'
 import SqlEditor from '../components/SqlEditor.vue'
@@ -22,6 +22,76 @@ const sqlText = ref(props.initialSql || `SELECT * FROM information_schema.tables
 const result = ref<ExecResult | null>(null)
 const running = ref(false)
 const error = ref('')
+
+// ── 查询耗时 ──
+const queryTime = ref(0)
+
+// ── 可拖拽分屏 (编辑器高度百分比) ──
+const splitRatio = ref(35) // 编辑器占比 %
+const isDragging = ref(false)
+
+function onSplitMouseDown(e: MouseEvent) {
+  isDragging.value = true
+  e.preventDefault()
+}
+
+function onSplitMouseMove(e: MouseEvent) {
+  if (!isDragging.value) return
+  const container = document.querySelector('.workbench') as HTMLElement
+  if (!container) return
+  const rect = container.getBoundingClientRect()
+  const y = e.clientY - rect.top
+  const pct = Math.max(15, Math.min(75, (y / rect.height) * 100))
+  splitRatio.value = pct
+}
+
+function onSplitMouseUp() {
+  isDragging.value = false
+}
+
+onMounted(() => {
+  document.addEventListener('mousemove', onSplitMouseMove)
+  document.addEventListener('mouseup', onSplitMouseUp)
+})
+onUnmounted(() => {
+  document.removeEventListener('mousemove', onSplitMouseMove)
+  document.removeEventListener('mouseup', onSplitMouseUp)
+})
+
+// ── 查询历史 (localStorage) ──
+const historyKey = computed(() => `sql_history_${props.connId}`)
+const queryHistory = ref<{ sql: string; time: string }[]>([])
+
+function loadHistory() {
+  try {
+    const raw = localStorage.getItem(historyKey.value)
+    if (raw) queryHistory.value = JSON.parse(raw)
+  } catch { /* ignore */ }
+}
+
+function saveHistory() {
+  try {
+    localStorage.setItem(historyKey.value, JSON.stringify(queryHistory.value.slice(0, 50)))
+  } catch { /* ignore */ }
+}
+
+function addHistory(sql: string) {
+  const ts = new Date().toLocaleString()
+  queryHistory.value.unshift({ sql, time: ts })
+  if (queryHistory.value.length > 50) queryHistory.value.pop()
+  saveHistory()
+}
+
+function selectFromHistory(item: { sql: string }) {
+  sqlText.value = item.sql
+}
+
+function clearHistory() {
+  queryHistory.value = []
+  localStorage.removeItem(historyKey.value)
+}
+
+onMounted(loadHistory)
 
 // 分页
 const page = ref(1)
@@ -54,6 +124,7 @@ async function runQuery() {
   }
   running.value = true
   error.value = ''
+  const t0 = performance.now()
 
   try {
     const res: any = await api.executeSQL(
@@ -67,6 +138,7 @@ async function runQuery() {
       allRows.value = res.data.rows || []
       page.value = 1
       modifiedCells.value.clear()
+      addHistory(sqlText.value)
     } else {
       error.value = res.message || '执行失败'
       result.value = null
@@ -77,8 +149,40 @@ async function runQuery() {
     result.value = null
     allRows.value = []
   } finally {
+    queryTime.value = Math.round((performance.now() - t0) * 10) / 10 // ms, 1 decimal
     running.value = false
   }
+}
+
+
+function clearSql() { sqlText.value = '' }
+
+function formatSql() {
+  // 简单格式化：关键字大写 + 缩进
+  let s = sqlText.value.trim()
+  if (!s) return
+  const kw = /\b(SELECT|FROM|WHERE|AND|OR|ORDER BY|GROUP BY|HAVING|LIMIT|OFFSET|INSERT INTO|VALUES|UPDATE|SET|DELETE|CREATE|ALTER|DROP|JOIN|LEFT JOIN|RIGHT JOIN|INNER JOIN|OUTER JOIN|ON|UNION|ALL|INTO|LIKE|BETWEEN|EXISTS|NOT|IN|AS|DISTINCT|COUNT|SUM|AVG|MIN|MAX|INTO)\b/gi
+  s = s.replace(kw, m => m.toUpperCase())
+  // 在主要关键字前加换行（不在字符串内）
+  const breakKw = /\b(WHERE|ORDER BY|GROUP BY|HAVING|LIMIT|OFFSET|JOIN|LEFT JOIN|RIGHT JOIN|INNER JOIN|OUTER JOIN|ON|UNION|AND|OR)\b/gi
+  const parts: string[] = []
+  let last = 0
+  let match: RegExpExecArray | null
+  while ((match = breakKw.exec(s)) !== null) {
+    const pos = match.index
+    if (pos > last) parts.push(s.slice(last, pos))
+    // 检测是否在引号内（简单检测）
+    const before = s.slice(0, pos)
+    const quotes = (before.match(/'/g)||[]).length
+    if (quotes % 2 === 1) {
+      parts.push(match[0])
+    } else {
+      parts.push('\n  ' + match[0])
+    }
+    last = breakKw.lastIndex
+  }
+  if (last < s.length) parts.push(s.slice(last))
+  sqlText.value = parts.join('').trim()
 }
 
 function startEdit(rowIdx: number, colIdx: number) {
@@ -135,13 +239,40 @@ async function exportResult() {
 </script>
 
 <template>
-  <div class="workbench">
+  <div class="workbench" :class="{ dragging: isDragging }">
     <!-- SQL 编辑器 -->
-    <div class="editor-panel">
+    <div class="editor-panel" :style="{ height: splitRatio + '%' }">
       <div class="editor-toolbar">
-        <span class="toolbar-title">SQL 查询</span>
+        <span class="toolbar-title">SQL 查询 <span class="shortcut-hint">Ctrl+Enter</span></span>
         <n-space size="small">
           <n-tag v-if="props.dbName" type="info" size="small">{{ props.dbName }}</n-tag>
+
+          <!-- 查询历史 -->
+          <n-popover v-if="queryHistory.length > 0" trigger="click" placement="bottom-start" :width="400">
+            <template #trigger>
+              <n-button size="tiny" quaternary>📜 历史 ({{ queryHistory.length }})</n-button>
+            </template>
+            <div class="history-panel">
+              <div class="history-header">
+                <span style="font-weight:600;font-size:13px">查询历史</span>
+                <n-button size="tiny" text type="error" @click="clearHistory">清空</n-button>
+              </div>
+              <div class="history-list">
+                <div
+                  v-for="(item, idx) in queryHistory"
+                  :key="idx"
+                  class="history-item"
+                  @click="selectFromHistory(item)"
+                >
+                  <div class="history-sql">{{ item.sql.slice(0, 120) }}{{ item.sql.length > 120 ? '...' : '' }}</div>
+                  <div class="history-time">{{ item.time }}</div>
+                </div>
+              </div>
+            </div>
+          </n-popover>
+
+          <n-button size="tiny" quaternary @click="formatSql" title="格式化 SQL">美化</n-button>
+          <n-button size="tiny" quaternary @click="clearSql" title="清空编辑器">清空</n-button>
           <n-button size="tiny" type="primary" :loading="running" @click="runQuery">
             ▶ 执行
           </n-button>
@@ -156,8 +287,20 @@ async function exportResult() {
       />
     </div>
 
+    <!-- 拖拽分隔条 -->
+    <div
+      class="split-handle"
+      @mousedown="onSplitMouseDown"
+      :title="'拖拽调整大小'"
+    >
+      <div class="split-handle-bar"></div>
+    </div>
+
     <!-- 错误信息 -->
     <n-alert v-if="error" type="error" closable class="error-alert">
+      <template #header>
+        <span style="font-size:12px">执行错误 ({{ queryTime }}ms)</span>
+      </template>
       {{ error }}
     </n-alert>
 
@@ -176,6 +319,7 @@ async function exportResult() {
           </n-tag>
         </span>
         <n-space size="small">
+          <n-tag v-if="queryTime > 0" size="tiny" type="info">{{ queryTime }}ms</n-tag>
           <n-button
             size="tiny"
             :loading="exporting"
@@ -195,12 +339,15 @@ async function exportResult() {
             key: col,
             width: 160,
             resizable: true,
+            ellipsis: { tooltip: true },
             render: (row: any, ri: number) => {
               const absRow = (page - 1) * pageSize + ri
               const cellKey = `${absRow}-${ci}`
               const isEditing = editCell?.row === ri && editCell?.col === ci
               const isModified = modifiedCells.has(cellKey)
-              const val = modifiedCells.get(cellKey) ?? row[col] ?? ''
+              const rawVal = row[col]
+              const cellVal = modifiedCells.get(cellKey) ?? rawVal
+              const isNull = rawVal === null || rawVal === undefined
 
               if (isEditing) {
                 return h('input', {
@@ -230,16 +377,17 @@ async function exportResult() {
                 onClick: () => startEdit(ri, ci),
                 style: {
                   cursor: 'text',
-                  color: '#cccccc',
-                  background: isModified ? '#2d4a2d' : 'transparent',
+                  color: isNull ? '#666' : (isModified ? '#6f6' : '#ccc'),
+                  fontStyle: isNull ? 'italic' : 'normal',
+                  background: isModified ? 'rgba(45, 100, 45, 0.15)' : 'transparent',
                   padding: '0 4px',
-display: 'block',
+                  display: 'block',
                   minHeight: '22px',
                   lineHeight: '22px',
                   fontSize: '12px',
                 },
-                title: isModified ? `已修改: ${val}` : String(val),
-              }, String(val))
+                title: isNull ? 'NULL' : (isModified ? `已修改: ${cellVal}` : String(cellVal)),
+              }, isNull ? 'NULL' : String(cellVal))
             },
           })) as any"
           :data="displayRows.map((row, ri) => {
@@ -285,6 +433,7 @@ display: 'block',
           </span>
           <n-button size="tiny" :disabled="page >= totalPages" @click="page++">下一页</n-button>
         </n-space>
+        <span class="footer-info">{{ modifiedCells.size > 0 ? `已修改 ${modifiedCells.size} 个单元格` : '' }}</span>
       </div>
     </div>
 
@@ -298,19 +447,24 @@ display: 'block',
   flex-direction: column;
   height: 100%;
   padding: 12px;
-  gap: 8px;
+  gap: 6px;
 }
+.workbench.dragging { user-select: none; cursor: row-resize; }
+.workbench.dragging .table-wrapper { pointer-events: none; }
 
 .editor-panel {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  min-height: 60px;
+  overflow: hidden;
 }
 
 .editor-toolbar {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-shrink: 0;
 }
 
 .toolbar-title {
@@ -322,6 +476,72 @@ display: 'block',
   gap: 8px;
 }
 
+.shortcut-hint { color: #666; font-weight: 400; font-size: 11px; }
+
+/* ── 拖拽分隔条 ── */
+.split-handle {
+  height: 6px;
+  cursor: row-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin: -1px 0;
+  position: relative;
+  z-index: 10;
+}
+.split-handle:hover .split-handle-bar,
+.workbench.dragging .split-handle-bar {
+  background: #0078d4;
+  height: 3px;
+}
+.split-handle-bar {
+  width: 40px;
+  height: 2px;
+  border-radius: 2px;
+  background: #555;
+  transition: background 0.15s, height 0.15s;
+}
+
+/* ── 查询历史 ── */
+.history-panel {
+  max-height: 400px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.history-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 8px 8px;
+  border-bottom: 1px solid #333;
+}
+.history-list {
+  overflow-y: auto;
+  max-height: 360px;
+}
+.history-item {
+  padding: 6px 8px;
+  cursor: pointer;
+  border-bottom: 1px solid #2a2a2a;
+}
+.history-item:hover {
+  background: #2a2a2a;
+}
+.history-sql {
+  font-family: 'Consolas', monospace;
+  font-size: 12px;
+  color: #ccc;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.history-time {
+  font-size: 11px;
+  color: #666;
+  margin-top: 2px;
+}
+
 .sql-editor {
   font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
   font-size: 13px;
@@ -329,6 +549,7 @@ display: 'block',
 
 .error-alert {
   margin: 4px 0;
+  flex-shrink: 0;
 }
 
 .result-panel {
@@ -337,12 +558,14 @@ display: 'block',
   flex-direction: column;
   gap: 4px;
   min-height: 0;
+  overflow: hidden;
 }
 
 .result-toolbar {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-shrink: 0;
 }
 
 .result-footer {
@@ -351,9 +574,15 @@ display: 'block',
   align-items: center;
   padding: 6px 8px;
   border-top: 1px solid #333;
+  flex-shrink: 0;
 }
 
 .footer-info {
+  color: #888;
+  font-size: 12px;
+}
+
+.footer-label {
   color: #888;
   font-size: 12px;
 }
@@ -366,14 +595,6 @@ display: 'block',
 .table-wrapper {
   flex: 1;
   overflow: auto;
-}
-
-/* n-data-table 紧凑行高 */
-.table-wrapper :deep(.n-data-table-td) {
-  padding: 1px 4px !important;
-  height: auto !important;
-  line-height: 20px;
-  font-size: 12px;
 }
 
 .table-wrapper :deep(.n-data-table-th) {

@@ -92,7 +92,7 @@ export const api = {
 
   // 表
   listTables: (connId: number, database?: string, schema?: string) =>
-    http.get(`/tables/${connId}`, { params: { database, schema } }) as Promise<ApiResponse<TableInfo[]>>,
+    http.get(`/tables/${connId}`, { params: { database, schema }, timeout: 60000 }) as Promise<ApiResponse<TableInfo[]>>,
   getTableColumns: (connId: number, table: string, database?: string, schema?: string) =>
     http.get(`/tables/${connId}/${table}/columns`, { params: { database, schema } }) as Promise<ApiResponse<ColumnDetail[]>>,
   getTableIndexes: (connId: number, table: string, database?: string, schema?: string) =>
@@ -107,6 +107,16 @@ export const api = {
     http.get(`/tables/${connId}/views`, { params: { database, schema } }) as Promise<ApiResponse<string[]>>,
   listFunctions: (connId: number, database?: string, schema?: string) =>
     http.get(`/tables/${connId}/functions`, { params: { database, schema } }) as Promise<ApiResponse<any[]>>,
+
+  // ── 视图管理 ──
+  getViewDDL: (connId: number, viewName: string, database?: string, schema?: string) =>
+    http.get(`/tables/${connId}/views/${encodeURIComponent(viewName)}/ddl`, { params: { database, schema } }) as Promise<ApiResponse<string>>,
+
+  // ── 函数管理 ──
+  getFunctionDDL: (connId: number, funcName: string, funcType?: string, database?: string, schema?: string) =>
+    http.get(`/tables/${connId}/functions/${encodeURIComponent(funcName)}/ddl`, { params: { func_type: funcType, database, schema } }) as Promise<ApiResponse<string>>,
+  getFunctionMetadata: (connId: number, funcName: string, database?: string, schema?: string) =>
+    http.get(`/tables/${connId}/functions/${encodeURIComponent(funcName)}/metadata`, { params: { database, schema } }) as Promise<ApiResponse<any>>,
 
   // 表结构修改
   createTable: (connId: number, params: any) =>
@@ -224,7 +234,7 @@ export const api = {
 
   /** 构建数据库上下文 */
   aiBuildContext: (data: any) =>
-    http.post('/ai/context', data) as Promise<ApiResponse<{ context: string; tables: number; db_type: string; db_name: string }>>,
+    http.post('/ai/context', data, { timeout: 120000 }) as Promise<ApiResponse<{ context: string; tables: number; db_type: string; db_name: string }>>,
 
   /** 获取聊天历史列表 */
   aiListHistory: () =>

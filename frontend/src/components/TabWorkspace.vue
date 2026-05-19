@@ -16,6 +16,9 @@ const componentMap: Record<string, any> = {
   'connection-list': markRaw(defineAsyncComponent(() => import('../views/ConnectionList.vue'))),
   'connection-detail': markRaw(defineAsyncComponent(() => import('../views/ConnectionDetail.vue'))),
   'ai-settings': markRaw(defineAsyncComponent(() => import('../views/AISettingsPage.vue'))),
+  'view-manager': markRaw(defineAsyncComponent(() => import('../views/ViewManager.vue'))),
+  'function-manager': markRaw(defineAsyncComponent(() => import('../views/FunctionManager.vue'))),
+  'settings': markRaw(defineAsyncComponent(() => import('../views/SettingsPage.vue'))),
 }
 
 // ── 右键菜单 ──
@@ -130,8 +133,8 @@ function onTabMouseDown(e: MouseEvent, tab: TabItem) {
 .tab-bar {
   display: flex;
   align-items: center;
-  background: #252526;
-  border-bottom: 1px solid #3c3c3c;
+  background: var(--bg-sidebar);
+  border-bottom: 1px solid var(--color-border);
   min-height: 32px;
   overflow-x: auto;
   overflow-y: hidden;
@@ -151,7 +154,7 @@ function onTabMouseDown(e: MouseEvent, tab: TabItem) {
   font-size: 12px;
   color: #999999;
   cursor: pointer;
-  border-right: 1px solid #3c3c3c;
+  border-right: 1px solid var(--color-border);
   white-space: nowrap;
   min-width: 0;
   position: relative;
@@ -160,11 +163,11 @@ function onTabMouseDown(e: MouseEvent, tab: TabItem) {
 
 .tab-item:hover {
   background: #2d2d2d;
-  color: #cccccc;
+  color: var(--color-text-secondary);
 }
 
 .tab-item.active {
-  background: #1e1e1e;
+  background: var(--bg-app);
   color: #ffffff;
   border-bottom: 2px solid #0078d4;
 }

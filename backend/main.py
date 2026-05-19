@@ -1,7 +1,7 @@
 """MDBS FastAPI 后端入口
 
 启动命令::
-    python -m uvicorn backend.main:app --host 127.0.0.1 --port 18080 --reload
+    python -m uvicorn backend.main:app --host 127.0.0.1 --port 18081 --reload
 
 生产部署 (打包后):
     run_backend.py  (自动加载同目录下的 frontend/dist 静态文件)
@@ -20,7 +20,9 @@ BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
 if BACKEND_DIR not in sys.path:
     sys.path.insert(0, BACKEND_DIR)
 
-from .routers import connections, databases, tables, query, backup, export, import_routes, sync as sync_router, ai as ai_router
+from .routers import connections, databases, tables, query, backup, export, import_routes  # type: ignore[import-not-found]
+from .routers import sync as sync_router  # type: ignore[import-not-found]
+from .routers import ai as ai_router  # type: ignore[import-not-found]
 
 app = FastAPI(
     title="MDBS",

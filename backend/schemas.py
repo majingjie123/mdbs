@@ -329,6 +329,7 @@ class ChatSaveRequest(BaseModel):
     db_name: Optional[str] = None
     messages: list[ChatMessage]
     context_summary: str = ""
+    context_text: str = ""
 
 
 class ChatHistoryItem(BaseModel):

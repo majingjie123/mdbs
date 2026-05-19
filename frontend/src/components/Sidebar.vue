@@ -5,6 +5,7 @@ import { useAppStore } from '../stores/app'
 import { api } from '../api'
 import SyncDialog from './dialogs/SyncDialog.vue'
 import ImportDialog from './dialogs/ImportDialog.vue'
+import AISessionWizard from './dialogs/AISessionWizard.vue'
 
 const message = useMessage()
 const dialog = useDialog()
@@ -44,6 +45,7 @@ const showCreateDbDialog = ref(false)
 const createDbConnId = ref(0)
 const newDbName = ref('')
 const creatingDb = ref(false)
+const showAISessionWizard = ref(false)
 
 async function doCreateDb() {
   if (!newDbName.value.trim()) {
@@ -495,10 +497,24 @@ function handleCtxAction(action: string | undefined) {
       showSyncDialog.value = true
       break
 
-    // ── 视图 ──
-    case 'manage-view':
-      store.openTab('table-browser', tableName, { connId, tableName, dbName, schemaName })
+    // ── AI 助手 ──
+    case 'ai-chat':
+      store.openTab('ai-chat', 'AI 助手', {
+        connId,
+        dbName,
+        schemaName,
+        tableName,
+        nodeType: node.nodeType,
+        connName: node.label || '',
+      })
       break
+
+    // ── 视图 ──
+    case 'manage-view': {
+      const name = node.rawData?.name || node.label.split('  ')[0]
+      store.openTab('view-manager', `视图: ${name}`, { connId, viewName: name, dbName, schemaName })
+      break
+    }
     case 'view-view-ddl':
       store.openTab('sql-workbench', `DDL: ${tableName}`, {
         connId, dbName, schemaName,
@@ -515,12 +531,14 @@ function handleCtxAction(action: string | undefined) {
       break
 
     // ── 函数 ──
-    case 'manage-func':
-      store.openTab('sql-workbench', `管理: ${tableName}`, {
-        connId, dbName, schemaName,
-        initialSql: `SHOW CREATE FUNCTION \`${tableName}\``,
+    case 'manage-func': {
+      const funcName = node.rawData?.name || node.label.replace(/^[ƒ⚙️]\s*/, '').split('  ')[0]
+      const funcType = node.rawData?.type || 'FUNCTION'
+      store.openTab('function-manager', `${funcType === 'PROCEDURE' ? '过程' : '函数'}: ${funcName}`, {
+        connId, funcName, funcType, dbName, schemaName,
       })
       break
+    }
     case 'view-func-ddl':
       store.openTab('sql-workbench', `DDL: ${tableName}`, {
         connId, dbName, schemaName,
@@ -542,6 +560,7 @@ function getMenuItems(nodeType: string = '') {
     case 'connection':
       return [
         { label: '新建查询', action: 'new-query' },
+        { label: 'AI 助手', action: 'ai-chat' },
         { separator: true },
         { label: '断开连接', action: 'disconnect' },
         { label: '创建数据库...', action: 'create-db' },
@@ -553,6 +572,7 @@ function getMenuItems(nodeType: string = '') {
     case 'database':
       return [
         { label: '新建查询', action: 'new-query' },
+        { label: 'AI 助手', action: 'ai-chat' },
         { separator: true },
         { label: '同步库结构...', action: 'sync-structure' },
         { separator: true },
@@ -562,6 +582,7 @@ function getMenuItems(nodeType: string = '') {
     case 'table':
       return [
         { label: '查看数据', action: 'view-data' },
+        { label: 'AI 助手', action: 'ai-chat' },
         { separator: true },
         { label: '查询表结构', action: 'view-structure' },
         { label: '查看 DDL', action: 'view-ddl' },
@@ -606,6 +627,9 @@ function getMenuItems(nodeType: string = '') {
 }
 
 // 点击文档关闭右键菜单 + AI 入口
+function openAIChat() {
+  store.openTab('ai-chat', 'AI 助手', {})
+}
 function onDocClick() { closeCtxMenu() }
 onMounted(() => { document.addEventListener('click', onDocClick); refreshConnections() })
 onUnmounted(() => document.removeEventListener('click', onDocClick))
@@ -616,9 +640,17 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
     <!-- 标题栏 -->
     <div class="sidebar-header">
       <span v-if="!collapsed" class="sidebar-title">数据库浏览器</span>
-      <button class="toggle-btn" @click="collapsed = !collapsed" :title="collapsed ? '展开' : '折叠'">
-        {{ collapsed ? '▶' : '◀' }}
-      </button>
+      <div class="sidebar-header-actions">
+        <button class="sidebar-icon-btn" @click="showAISessionWizard = true" title="AI 会话向导">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a4 4 0 0 1 4 4c0 2-2 4-4 4s-4-2-4-4a4 4 0 0 1 4-4z"/><path d="M12 14c-4 0-6 2-6 4v2h12v-2c0-2-2-4-6-4z"/><path d="M19 7l1 2 2 1-2 1-1 2-1-2-2-1 2-1z"/><path d="M5 16l-1 2-2 1 2 1 1 2 1-2 2-1-2-1z"/></svg>
+        </button>
+        <button class="sidebar-icon-btn" @click="openAIChat" title="AI 助手">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+        </button>
+        <button class="toggle-btn" @click="collapsed = !collapsed" :title="collapsed ? '展开' : '折叠'">
+          {{ collapsed ? '▶' : '◀' }}
+        </button>
+      </div>
     </div>
 
     <!-- 搜索框 -->
@@ -651,6 +683,9 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
         style="flex: 1; overflow-y: auto; padding: 2px 4px"
       />
     </div>
+
+    <!-- AI 会话向导对话框 -->
+    <AISessionWizard v-model:show="showAISessionWizard" />
 
     <!-- 创建数据库对话框 -->
     <n-modal v-model:show="showCreateDbDialog" title="创建数据库" preset="card" style="width: 400px">
@@ -688,10 +723,10 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
 .sidebar {
   width: 260px;
   min-width: 260px;
-  background: #252526;
+  background: var(--bg-sidebar);
   display: flex;
   flex-direction: column;
-  border-right: 1px solid #3c3c3c;
+  border-right: 1px solid var(--color-border);
   user-select: none;
   transition: width 0.2s, min-width 0.2s;
   overflow: hidden;
@@ -707,26 +742,48 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
   justify-content: space-between;
   align-items: center;
   padding: 7px 10px;
-  border-bottom: 1px solid #3c3c3c;
+  border-bottom: 1px solid var(--color-border);
   flex-shrink: 0;
 }
 
 .sidebar-search {
   flex-shrink: 0;
-  border-bottom: 1px solid #3c3c3c;
+  border-bottom: 1px solid var(--color-border);
   padding-bottom: 4px;
 }
 
 .sidebar-title {
   font-size: 12px;
   font-weight: 600;
-  color: #cccccc;
+  color: var(--color-text-secondary);
+}
+
+.sidebar-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.sidebar-icon-btn {
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  padding: 3px 5px;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+}
+
+.sidebar-icon-btn:hover {
+  background: var(--bg-hover);
+  color: #fff;
 }
 
 .toggle-btn {
   background: none;
   border: none;
-  color: #888;
+  color: var(--color-text-muted);
   cursor: pointer;
   padding: 2px 6px;
   font-size: 11px;
@@ -734,7 +791,7 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
 }
 
 .toggle-btn:hover {
-  background: #3c3c3c;
+  background: var(--bg-hover);
   color: #fff;
 }
 
@@ -750,8 +807,8 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
   position: fixed;
   z-index: 9999;
   min-width: 190px;
-  background: #3c3f41;
-  border: 1px solid #555;
+  background: var(--bg-dropdown);
+  border: 1px solid var(--color-border-light);
   border-radius: 4px;
   padding: 4px 0;
   box-shadow: 0 4px 12px rgba(0,0,0,0.3);
@@ -760,19 +817,19 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
 :global(.ctx-item) {
   padding: 5px 16px;
   cursor: pointer;
-  color: #ccc;
+  color: var(--color-text-secondary);
   font-size: 12px;
   white-space: nowrap;
 }
 
 :global(.ctx-item:hover) {
-  background: #4c4f51;
+  background: var(--bg-hover);
   color: #fff;
 }
 
 :global(.ctx-sep) {
   height: 1px;
-  background: #555;
+  background: var(--color-border-light);
   margin: 4px 8px;
 }
 </style>

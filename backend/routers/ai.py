@@ -184,11 +184,16 @@ def build_context(req: ContextBuildRequest,
             table_names=req.tables,
         )
 
+        # 从上下文文本中提取实际加载的表数量
+        import re
+        match = re.search(r'涉及 (\d+) 个表的结构信息', context_text)
+        loaded_count = int(match.group(1)) if match else 0
+
         return {
             "success": True,
             "data": {
                 "context": context_text,
-                "tables": len(req.tables) if req.tables else 0,
+                "tables": loaded_count,
                 "db_type": conn_data.get("db_type", "MySQL"),
                 "db_name": req.database or conn_data.get("database", ""),
             }
@@ -261,15 +266,15 @@ def save_chat_history(req: ChatSaveRequest):
 
             if row:
                 conn.execute(
-                    'UPDATE ai_chat_history SET messages=?, context_summary=?, updated_at=? WHERE id=?',
-                    (messages_json, req.context_summary, now, row[0])
+                    'UPDATE ai_chat_history SET messages=?, context_summary=?, context_text=?, updated_at=? WHERE id=?',
+                    (messages_json, req.context_summary, req.context_text, now, row[0])
                 )
                 record_id = row[0]
             else:
                 cursor = conn.execute(
-                    'INSERT INTO ai_chat_history (conn_id, db_name, messages, context_summary, created_at, updated_at) '
-                    'VALUES (?, ?, ?, ?, ?, ?)',
-                    (req.conn_id, req.db_name, messages_json, req.context_summary, now, now)
+                    'INSERT INTO ai_chat_history (conn_id, db_name, messages, context_summary, context_text, created_at, updated_at) '
+                    'VALUES (?, ?, ?, ?, ?, ?, ?)',
+                    (req.conn_id, req.db_name, messages_json, req.context_summary, req.context_text, now, now)
                 )
                 record_id = cursor.lastrowid
             conn.commit()

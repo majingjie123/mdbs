@@ -52,7 +52,7 @@ def _patch_uvicorn_logging():
 def main():
     os.environ["MDBS_FRONTEND_DIST"] = str(_get_frontend_dist())
     host = os.environ.get("MDBS_HOST", "127.0.0.1")
-    port = int(os.environ.get("MDBS_PORT", "18080"))
+    port = int(os.environ.get("MDBS_PORT", "18081"))
     print(f"  MDBS backend: http://{host}:{port}/")
     import uvicorn
     uvicorn.run("backend.main:app", host=host, port=port, reload=False, log_config=_patch_uvicorn_logging())

@@ -2,8 +2,10 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMessage, useDialog } from 'naive-ui'
+import { useAppStore } from '../stores/app'
 
 const router = useRouter()
+const store = useAppStore()
 const message = useMessage()
 const dialog = useDialog()
 
@@ -88,6 +90,12 @@ function saveSettings() {
     }
   }
   localStorage.setItem('mdbs_settings', JSON.stringify(settings))
+  // 立即生效 — 设置 data-theme 属性 & 更新 store
+  document.documentElement.setAttribute('data-theme', currentTheme.value)
+  store.themeId = currentTheme.value
+  const root = document.documentElement
+  root.style.setProperty('--editor-font', fontFamily.value)
+  root.style.setProperty('--editor-font-size', fontSize.value + 'px')
   message.success('设置已保存')
 }
 
@@ -128,6 +136,15 @@ function clearAllData() {
   })
 }
 
+// 返回：标签页模式下关闭自身，否则路由回退
+function goBack() {
+  if (store.activeTabId) {
+    store.closeTab(store.activeTabId)
+  } else {
+    router.push('/connections')
+  }
+}
+
 onMounted(loadSettings)
 </script>
 
@@ -137,7 +154,7 @@ onMounted(loadSettings)
       <h2>设置</h2>
       <n-space>
         <n-button @click="saveSettings" type="primary">保存设置</n-button>
-        <n-button @click="router.push('/connections')">返回</n-button>
+        <n-button @click="goBack">返回</n-button>
       </n-space>
     </div>
 
@@ -260,9 +277,9 @@ onMounted(loadSettings)
 
 .preview-toolbar {
   height: 24px;
-  background: #3c3f41;
+  background: var(--bg-toolbar);
   padding: 4px 8px;
-  color: #aaa;
+  color: var(--color-text-muted);
 }
 
 .preview-body {
@@ -272,23 +289,23 @@ onMounted(loadSettings)
 
 .preview-sidebar {
   width: 80px;
-  background: #252526;
+  background: var(--bg-sidebar);
   padding: 8px;
-  color: #888;
+  color: var(--color-text-muted);
 }
 
 .preview-workspace {
   flex: 1;
-  background: #1e1e1e;
+  background: var(--bg-app);
   padding: 8px;
   color: #777;
 }
 
 .preview-status {
   height: 20px;
-  background: #3c3f41;
+  background: var(--bg-status);
   padding: 2px 8px;
-  color: #999;
+  color: var(--color-text-muted);
 }
 
 /* 不同主题变体 */

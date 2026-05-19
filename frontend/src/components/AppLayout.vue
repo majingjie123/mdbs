@@ -137,7 +137,7 @@ function goExport() { closeMenus(); showExport.value = true }
 function goBackupRestore() { closeMenus(); showBackup.value = true }
 function goSync() { closeMenus(); showSync.value = true }
 function goSyncHistory() { closeMenus(); showSync.value = true }
-function goSettings() { closeMenus(); router.push('/settings') }
+function goSettings() { closeMenus(); store.openTab('settings', '设置', {}, true) }
 function goAISettings() { closeMenus(); store.openTab('ai-settings', 'AI 设置', {}, true) }
 function goAIChat() {
   closeMenus()
@@ -322,8 +322,8 @@ function goShortcuts() {
   display: flex;
   flex-direction: column;
   height: 100vh;
-  background: #1e1e1e;
-  color: #e0e0e0;
+  background: var(--bg-app);
+  color: var(--color-text);
   font-size: 13px;
   overflow: hidden;
 }
@@ -335,7 +335,7 @@ function goShortcuts() {
   align-items: center;
   height: 30px;
   min-height: 30px;
-  background: #3c3f41;
+  background: var(--bg-toolbar);
   padding: 0 8px;
   user-select: none;
   flex-shrink: 0;
@@ -355,12 +355,12 @@ function goShortcuts() {
   align-items: center;
   gap: 4px;
   border-radius: 3px;
-  color: #bbbbbb;
+  color: var(--color-text-menu);
   font-size: 12px;
 }
 
 .menu-item:hover {
-  background: #4c4f51;
+  background: var(--bg-hover);
   color: #ffffff;
 }
 
@@ -373,13 +373,13 @@ function goShortcuts() {
   padding: 4px 6px;
   cursor: pointer;
   border-radius: 3px;
-  color: #bbbbbb;
+  color: var(--color-icon);
   display: flex;
   align-items: center;
 }
 
 .menu-icon-btn:hover {
-  background: #4c4f51;
+  background: var(--bg-hover);
   color: #ffffff;
 }
 
@@ -388,8 +388,8 @@ function goShortcuts() {
   top: 100%;
   left: 0;
   min-width: 200px;
-  background: #3c3f41;
-  border: 1px solid #555555;
+  background: var(--bg-dropdown);
+  border: 1px solid var(--color-border-light);
   border-radius: 4px;
   padding: 4px 0;
   z-index: 1000;
@@ -399,25 +399,25 @@ function goShortcuts() {
 .dropdown-item {
   padding: 6px 16px;
   cursor: pointer;
-  color: #cccccc;
+  color: var(--color-text-secondary);
   font-size: 12px;
   white-space: nowrap;
 }
 
 .dropdown-item:hover {
-  background: #4c4f51;
+  background: var(--bg-hover);
   color: #ffffff;
 }
 
 .dropdown-separator {
   height: 1px;
-  background: #555555;
+  background: var(--color-border-light);
   margin: 4px 8px;
 }
 
 .menu-sep {
   height: 1px;
-  background: #3c3c3c;
+  background: var(--color-border);
   flex-shrink: 0;
 }
 
@@ -450,7 +450,7 @@ function goShortcuts() {
 
 .split-handle:hover,
 .main-area.dragging .split-handle {
-  background: #0078d4;
+  background: var(--color-accent);
 }
 
 .workspace-wrapper {
@@ -468,16 +468,16 @@ function goShortcuts() {
   align-items: center;
   height: 24px;
   min-height: 24px;
-  background: #3c3f41;
+  background: var(--bg-status);
   padding: 0 12px;
   font-size: 12px;
-  color: #999999;
-  border-top: 1px solid #3c3c3c;
+  color: var(--color-text-muted);
+  border-top: 1px solid var(--color-border);
   flex-shrink: 0;
 }
 
 .status-conn {
-  color: #6a9955;
+  color: var(--color-conn-online);
 }
 
 /* ── AI 切换竖条 ── */
@@ -488,9 +488,9 @@ function goShortcuts() {
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  color: #888;
-  background: #252526;
-  border-left: 1px solid #3c3c3c;
+  color: var(--color-text-muted);
+  background: var(--bg-ai-strip);
+  border-left: 1px solid var(--color-border);
   transition: width 0.2s ease, color 0.15s, background 0.15s;
   writing-mode: vertical-lr;
   user-select: none;
@@ -499,15 +499,15 @@ function goShortcuts() {
 
 .ai-toggle-strip:hover {
   width: 22px;
-  color: #4fc3f7;
-  background: #2d2d2d;
+  color: var(--color-accent-alt);
+  background: var(--bg-hover);
 }
 
 .ai-toggle-strip.active {
   width: 22px;
-  color: #4fc3f7;
-  background: #1e1e1e;
-  border-left-color: #4fc3f7;
+  color: var(--color-accent-alt);
+  background: var(--bg-ai-panel);
+  border-left-color: var(--color-accent-alt);
 }
 
 /* ── AI 面板 ── */
@@ -515,8 +515,8 @@ function goShortcuts() {
   width: 0;
   flex-shrink: 0;
   overflow: hidden;
-  background: #1e1e1e;
-  border-left: 1px solid #3c3c3c;
+  background: var(--bg-ai-panel);
+  border-left: 1px solid var(--color-border);
   display: flex;
   flex-direction: column;
   transition: width 0.2s ease;
@@ -533,18 +533,18 @@ function goShortcuts() {
   justify-content: space-between;
   align-items: center;
   padding: 8px 12px;
-  background: #252526;
-  border-bottom: 1px solid #3c3c3c;
+  background: var(--bg-ai-header);
+  border-bottom: 1px solid var(--color-border);
   font-size: 12px;
   font-weight: 600;
-  color: #cccccc;
+  color: var(--color-text-secondary);
   flex-shrink: 0;
 }
 
 .ai-panel-close {
   background: none;
   border: none;
-  color: #888;
+  color: var(--color-text-muted);
   cursor: pointer;
   font-size: 16px;
   padding: 2px 6px;
@@ -553,7 +553,7 @@ function goShortcuts() {
 }
 
 .ai-panel-close:hover {
-  background: #3c3c3c;
+  background: var(--bg-hover);
   color: #fff;
 }
 
@@ -564,7 +564,7 @@ function goShortcuts() {
 
 /* 菜单图标激活状态 */
 .menu-icon-btn.active {
-  background: #4c4f51;
-  color: #0078d4;
+  background: var(--bg-hover);
+  color: var(--color-accent);
 }
 </style>

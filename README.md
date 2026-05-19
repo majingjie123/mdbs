@@ -58,7 +58,7 @@
 # 1. 后端启动
 cd backend
 pip install -r requirements.txt
-python -m uvicorn main:app --host 127.0.0.1 --port 18080 --reload
+python -m uvicorn main:app --host 127.0.0.1 --port 18081 --reload
 
 # 2. 前端启动 (新终端窗口)
 cd frontend
@@ -66,7 +66,7 @@ npm install
 npm run dev
 ```
 
-打开浏览器访问 `http://localhost:5173`（Vite 开发服务器自动代理 API 到 18080 端口）。
+打开浏览器访问 `http://localhost:5173`（Vite 开发服务器自动代理 API 到 18081 端口）。
 
 ### 生产模式运行
 
@@ -79,7 +79,7 @@ npm run build
 python scripts/run_backend.py
 ```
 
-访问 `http://127.0.0.1:18080/`。
+访问 `http://127.0.0.1:18081/`。
 
 ### 打包为独立可执行文件
 

@@ -22,12 +22,20 @@ const emit = defineEmits<{
   (e: 'execute'): void
 }>()
 
-// 自动补全 - 表名/列名缓存
-const schemaCache = ref<{ tables: string[]; columns: Record<string, string[]> }>({ tables: [], columns: {} })
+// 自动补全 - 表名/列名/视图名/函数名缓存
+const schemaCache = ref<{
+  tables: string[]
+  views: string[]
+  functions: string[]
+  columns: Record<string, string[]>
+}>({ tables: [], views: [], functions: [], columns: {} })
+
 const completions = computed(() => {
   const cache = schemaCache.value
   const items: { label: string; type: string; detail?: string }[] = []
   for (const t of cache.tables) items.push({ label: t, type: 'table' })
+  for (const v of cache.views) items.push({ label: v, type: 'view' })
+  for (const f of cache.functions) items.push({ label: f, type: 'function' })
   for (const [t, cols] of Object.entries(cache.columns)) {
     for (const c of cols) items.push({ label: c, type: 'column', detail: t })
   }
@@ -39,12 +47,18 @@ async function loadSchema() {
   if (!props.connId) return
   try {
     const { api } = await import('../api')
-    const tablesRes: any = await api.listTables(props.connId, props.dbName)
-    if (!tablesRes.success) return
+    const [tablesRes, viewsRes, funcRes] = await Promise.all([
+      api.listTables(props.connId, props.dbName),
+      api.listViews(props.connId, props.dbName),
+      api.listFunctions(props.connId, props.dbName),
+    ])
     const tables = (tablesRes.data || []).map((t: any) => t.name || t)
+    const views = (viewsRes.data || []).map((v: any) => v.name || v)
+    const functions = (funcRes.data || []).map((f: any) => f.name || f)
     const columns: Record<string, string[]> = {}
-    // 取前 5 个表的列名做补全
-    for (const t of tables.slice(0, 5)) {
+    // 取前 10 个表/视图的列名做补全
+    const allObjects = [...tables, ...views].slice(0, 10)
+    for (const t of allObjects) {
       try {
         const colRes: any = await api.getTableColumns(props.connId, t, props.dbName)
         if (colRes.success && colRes.data) {
@@ -52,7 +66,7 @@ async function loadSchema() {
         }
       } catch { /* ignore */ }
     }
-    schemaCache.value = { tables, columns }
+    schemaCache.value = { tables, views, functions, columns }
   } catch { /* ignore */ }
 }
 
@@ -133,7 +147,7 @@ const extensions = computed(() => [
   font-size: 13px !important;
 }
 .sql-cm-editor :deep(.cm-gutters) {
-  background: #252526;
-  border-right: 1px solid #3c3c3c;
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--color-border);
 }
 </style>
