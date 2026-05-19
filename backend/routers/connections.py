@@ -5,6 +5,7 @@ from ..dependencies import get_db_storage, get_db_ops
 from ..schemas import ConnData, ConnectionCreate, ConnectionUpdate, MessageResponse
 from models.db_storage import DBStorage
 from core.db_operations import DBOperations
+from core.ssh_manager import SSHTunnelManager
 
 router = APIRouter(prefix="/api/connections", tags=["连接管理"])
 
@@ -53,6 +54,8 @@ def create_connection(req: ConnectionCreate, storage: DBStorage = Depends(get_db
 def update_connection(conn_id: int, req: ConnectionUpdate, storage: DBStorage = Depends(get_db_storage)):
     """更新连接"""
     try:
+        # 配置可能变化，先释放旧的 SSH 隧道
+        SSHTunnelManager().stop_tunnel(conn_id)
         data = req.data.model_dump()
         storage.update_connection(conn_id, data)
         return {"success": True, "message": "更新成功"}
@@ -64,6 +67,8 @@ def update_connection(conn_id: int, req: ConnectionUpdate, storage: DBStorage = 
 def delete_connection(conn_id: int, storage: DBStorage = Depends(get_db_storage)):
     """删除连接"""
     try:
+        # 释放 SSH 隧道资源
+        SSHTunnelManager().stop_tunnel(conn_id)
         storage.delete_connection(conn_id)
         return {"success": True, "message": "删除成功"}
     except Exception as e:

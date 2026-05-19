@@ -16,6 +16,7 @@
 - **语法高亮**: CodeMirror 6 实时高亮 SQL 关键字、字符串、数字及注释。
 - **异步执行**: 所有 SQL 语句在后台异步执行，确保海量数据查询时前端依然响应灵敏。
 - **多标签页**: 支持同时打开多个工作台标签页，独立管理查询上下文。
+- **内联数据编辑**: 查询结果单元格可双击编辑，自动参数化 SQL 更新，支持批量保存修改。
 
 ### 数据库管理与表结构
 
@@ -115,6 +116,7 @@ DBConnectorManager/
 │   │   ├── databases.py            # 数据库管理
 │   │   ├── tables.py               # 表结构管理
 │   │   ├── query.py                # SQL 查询
+│   │   ├── queries.py              # 保存的查询 CRUD
 │   │   ├── backup.py               # 备份/恢复
 │   │   ├── export.py               # 数据导出
 │   │   ├── import_routes.py        # 数据导入
@@ -171,7 +173,8 @@ DBConnectorManager/
 | `/api/connections` | 连接管理 (CRUD)    |
 | `/api/databases`   | 数据库列表/创建/删除    |
 | `/api/tables`      | 表结构、数据、索引      |
-| `/api/query`       | SQL 执行         |
+| `/api/query`       | SQL 执行与结果分页      |
+| `/api/queries`     | 保存的查询 (CRUD)    |
 | `/api/backup`      | 备份与恢复          |
 | `/api/export`      | 数据导出           |
 | `/api/import`      | 数据导入           |

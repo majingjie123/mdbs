@@ -257,4 +257,14 @@ export const api = {
     http.post('/query/execute', { conn_id: connId, sql, database, schema_name: schema }, { signal }) as Promise<ApiResponse<ExecResult>>,
   executeBatch: (connId: number, sqls: { sql: string; params?: any[] }[], database?: string, schema?: string) =>
     http.post('/query/batch', { conn_id: connId, sqls, database, schema_name: schema }) as Promise<ApiResponse>,
+
+  // ── 保存的查询 ───────────────────────────────────────────
+  listSavedQueries: (connId: number, dbName?: string) =>
+    http.get(`/queries/${connId}`, { params: { db_name: dbName } }) as Promise<ApiResponse<any[]>>,
+  createQuery: (data: { conn_id: number; db_name?: string; name: string; sql_text: string }) =>
+    http.post('/queries/', data) as Promise<ApiResponse<{ id: number }>>,
+  updateQuery: (queryId: number, data: { name?: string; sql_text?: string }) =>
+    http.put(`/queries/${queryId}`, { id: queryId, ...data }) as Promise<ApiResponse>,
+  deleteQuery: (queryId: number) =>
+    http.delete(`/queries/${queryId}`) as Promise<ApiResponse>,
 }

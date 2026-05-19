@@ -52,6 +52,7 @@ DBConnectorManager/
 │   │   ├── databases.py        # 数据库管理 API
 │   │   ├── tables.py           # 表结构管理 API
 │   │   ├── query.py            # SQL 查询执行 API
+│   │   ├── queries.py          # 保存的查询 CRUD API
 │   │   ├── backup.py           # 备份/恢复 API
 │   │   ├── export.py           # 数据导出 API
 │   │   ├── import_routes.py    # 数据导入 API
@@ -174,6 +175,8 @@ python scripts/build_backend_exe.py
 - **异步执行**: 后端异步执行，不阻塞前端 UI
 - **智能补全**: 基于元数据的表名/列名建议
 - **多标签页**: 支持同时打开多个工作台标签页
+- **内联数据编辑**: 查询结果单元格可双击编辑，自动参数化 SQL 更新，支持批量保存修改
+- **查询保存**: 支持保存常用查询，跨会话复用
 
 ### 3. 表结构管理
 
@@ -186,6 +189,9 @@ python scripts/build_backend_exe.py
 - **架构感知**: 自动提取数据库上下文
 - **SQL 诊断**: 性能优化建议与语法错误解析
 - **SSE 流式回复**: 实时展示 AI 生成内容
+- **多会话管理**: 支持创建多个独立对话，按连接/数据库分组
+- **表选择上下文**: 可指定表范围的上下文，提高回复精准度
+- **消息操作**: 支持复制、二次提问、导出对话内容
 
 ### 5. 数据导出
 
@@ -238,6 +244,7 @@ python scripts/build_backend_exe.py
 | `/api/databases`   | 数据库列表/创建/删除      |
 | `/api/tables`      | 表结构/数据/索引        |
 | `/api/query`       | SQL 执行与结果分页      |
+| `/api/queries`     | 保存的查询 (CRUD)    |
 | `/api/backup`      | 备份与恢复            |
 | `/api/export`      | 多格式数据导出          |
 | `/api/import`      | 数据导入             |

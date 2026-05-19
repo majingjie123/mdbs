@@ -181,10 +181,15 @@ async function saveConfig() {
   }
   try {
     let res: any
+    const data: any = { ...formData.value }
+    // 编辑时 api_key 为空表示不修改，不发送该字段
+    if (editId.value && !data.api_key) {
+      delete data.api_key
+    }
     if (editId.value) {
-      res = await api.aiUpdateConfig(editId.value, formData.value)
+      res = await api.aiUpdateConfig(editId.value, data)
     } else {
-      res = await api.aiCreateConfig(formData.value)
+      res = await api.aiCreateConfig(data)
     }
     if (res.success) {
       message.success(editId.value ? '配置已更新' : '配置已创建')

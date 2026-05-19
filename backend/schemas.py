@@ -330,6 +330,7 @@ class ChatSaveRequest(BaseModel):
     messages: list[ChatMessage]
     context_summary: str = ""
     context_text: str = ""
+    id: Optional[int] = None  # 用于多会话区分，指定 id 时按 id 更新
 
 
 class ChatHistoryItem(BaseModel):
@@ -367,3 +368,28 @@ class MessageResponse(BaseModel):
     success: bool
     message: str = ""
     data: Optional[Any] = None
+
+
+# ── 保存的查询 ──────────────────────────────────────────────
+
+class SavedQueryCreate(BaseModel):
+    conn_id: int
+    db_name: Optional[str] = ""
+    name: str
+    sql_text: str = ""
+
+
+class SavedQueryUpdate(BaseModel):
+    id: int
+    name: Optional[str] = None
+    sql_text: Optional[str] = None
+
+
+class SavedQueryResponse(BaseModel):
+    id: int
+    conn_id: int
+    db_name: str
+    name: str
+    sql_text: str
+    created_at: str
+    updated_at: str

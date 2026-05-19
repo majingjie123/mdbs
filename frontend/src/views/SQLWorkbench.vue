@@ -9,19 +9,24 @@ const props = withDefaults(defineProps<{
   dbName?: string
   schemaName?: string
   initialSql?: string
+  savedQueryId?: number        // 从已保存的查询打开时需要
+  savedQueryName?: string      // 已保存查询的名称
 }>(), {
   connId: 0,
   dbName: '',
   schemaName: '',
   initialSql: '',
+  savedQueryId: 0,
+  savedQueryName: '',
 })
 
 const message = useMessage()
 
-const sqlText = ref(props.initialSql || `SELECT * FROM information_schema.tables LIMIT 100`)
+const sqlText = ref(props.initialSql || `SELECT 1`)
 const result = ref<ExecResult | null>(null)
 const running = ref(false)
 const error = ref('')
+const abortController = ref<AbortController | null>(null)
 
 // ── 查询耗时 ──
 const queryTime = ref(0)
@@ -115,6 +120,71 @@ const scrollX = computed(() => {
 const editCell = ref<{ row: number; col: number } | null>(null)
 const editValue = ref('')
 const modifiedCells = ref<Map<string, string>>(new Map())
+const saving = ref(false)
+
+// 列定义 computed，避免每次渲染重建
+const tableColumns = computed(() => {
+  if (!result.value?.columns) return []
+  const cols = result.value.columns
+  const ps = pageSize.value
+  const p = page.value
+  return cols.map((col, ci) => ({
+    title: col,
+    key: col,
+    width: 160,
+    resizable: true,
+    ellipsis: { tooltip: true },
+    render: (row: any, ri: number) => {
+      const absRow = (p - 1) * ps + ri
+      const cellKey = `${absRow}-${ci}`
+      const isEditing = editCell.value?.row === ri && editCell.value?.col === ci
+      const isModified = modifiedCells.value.has(cellKey)
+      const rawVal = row[col]
+      const cellVal = modifiedCells.value.get(cellKey) ?? rawVal
+      const isNull = rawVal === null || rawVal === undefined
+
+      if (isEditing) {
+        return h('input', {
+          value: editValue.value,
+          onInput: (e: any) => { editValue.value = e.target.value },
+          onBlur: () => commitEdit(ri, ci),
+          onKeydown: (e: any) => {
+            if (e.key === 'Enter') commitEdit(ri, ci)
+            if (e.key === 'Escape') editCell.value = null
+          },
+          style: {
+            width: '100%',
+            border: '2px solid #3498db',
+            background: '#2a2a2a',
+            color: '#e0e0e0',
+            padding: '1px 4px',
+            borderRadius: '2px',
+            outline: 'none',
+            fontSize: '12px',
+            lineHeight: '18px',
+          },
+          autofocus: '',
+        })
+      }
+
+      return h('span', {
+        onClick: () => startEdit(ri, ci),
+        style: {
+          cursor: 'text',
+          color: isNull ? '#666' : (isModified ? '#6f6' : '#ccc'),
+          fontStyle: isNull ? 'italic' : 'normal',
+          background: isModified ? 'rgba(45, 100, 45, 0.15)' : 'transparent',
+          padding: '0 4px',
+          display: 'block',
+          minHeight: '22px',
+          lineHeight: '22px',
+          fontSize: '12px',
+        },
+        title: isNull ? 'NULL' : (isModified ? `已修改: ${cellVal}` : String(cellVal)),
+      }, isNull ? 'NULL' : String(cellVal))
+    },
+  })) as any
+})
 
 async function runQuery() {
   if (!sqlText.value.trim()) return
@@ -126,11 +196,16 @@ async function runQuery() {
   error.value = ''
   const t0 = performance.now()
 
+  const ac = new AbortController()
+  abortController.value = ac
+
   try {
     const res: any = await api.executeSQL(
       props.connId,
       sqlText.value,
       props.dbName || undefined,
+      undefined,
+      ac.signal,
     )
 
     if (res.success) {
@@ -145,17 +220,28 @@ async function runQuery() {
       allRows.value = []
     }
   } catch (e: any) {
+    if (e.name === 'AbortError' || e.message?.includes('abort')) return
     error.value = e.message
     result.value = null
     allRows.value = []
   } finally {
+    abortController.value = null
     queryTime.value = Math.round((performance.now() - t0) * 10) / 10 // ms, 1 decimal
     running.value = false
   }
 }
 
+function stopQuery() {
+  if (abortController.value) {
+    abortController.value.abort()
+    abortController.value = null
+    running.value = false
+    message.info('查询已取消')
+  }
+}
 
-function clearSql() { sqlText.value = '' }
+
+function clearSql() { sqlText.value = ''; error.value = '' }
 
 function formatSql() {
   // 简单格式化：关键字大写 + 缩进
@@ -197,8 +283,139 @@ function commitEdit(rowIdx: number, colIdx: number) {
   if (!editCell.value) return
   const absRow = (page.value - 1) * pageSize.value + rowIdx
   const cellKey = `${absRow}-${colIdx}`
-  modifiedCells.value.set(cellKey, editValue.value)
+  const row = allRows.value[absRow]
+  const oldVal = row ? row[colIdx] : undefined
+  const newVal = editValue.value
+  // 值没变 → 跳过
+  if (oldVal === null && newVal === '') return
+  if (oldVal !== null && String(oldVal) === newVal) return
+  // 清空数字字段 → 跳过（避免 DOUBLE 列 1292 错误）
+  if (typeof oldVal === 'number' && newVal === '') return
+  modifiedCells.value.set(cellKey, newVal)
   editCell.value = null
+}
+
+// ── 保存修改到数据库 ──
+function escapeSql(val: any): string {
+  if (val === null || val === undefined) return 'NULL'
+  const s = String(val)
+  // 转义单引号 (MySQL: '' 转义)
+  return `'${s.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`
+}
+
+function guessTableName(sql: string): string | null {
+  // 尝试匹配 FROM/JOIN 后的第一个表名（支持反引号/引号包裹）
+  const m = sql.match(
+    /(?:FROM|JOIN|UPDATE|INTO)\s+`?([a-zA-Z_][\w$]*)`?/i
+  )
+  return m ? m[1] : null
+}
+
+async function saveEdits() {
+  if (modifiedCells.value.size === 0) return
+  if (!props.connId) {
+    message.warning('连接不存在')
+    return
+  }
+
+  const tableName = guessTableName(sqlText.value)
+  if (!tableName) {
+    message.warning('无法从 SQL 中解析表名，请使用单表查询（如 SELECT * FROM table）')
+    return
+  }
+
+  const cols = result.value?.columns
+  if (!cols || cols.length === 0) return
+
+  saving.value = true
+  // 使用参数化查询：{ sql: string, params: any[] }[]
+  const sqls: { sql: string; params: any[] }[] = []
+
+  // 按行分组：cellKey = "absRow-colIdx"
+  const rowMap = new Map<number, Map<number, string>>()
+  for (const [key, newVal] of modifiedCells.value) {
+    const [r, c] = key.split('-').map(Number)
+    if (!rowMap.has(r)) rowMap.set(r, new Map())
+    rowMap.get(r)!.set(c, newVal)
+  }
+
+  for (const [absRow, modCols] of rowMap) {
+    const rowData = allRows.value[absRow]
+    if (!rowData) continue
+
+    const setClauses: string[] = []
+    const setParams: any[] = []
+    const whereClauses: string[] = []
+    const whereParams: any[] = []
+
+    for (let ci = 0; ci < cols.length; ci++) {
+      const colName = cols[ci]
+      const newVal = modCols.get(ci)
+      const oldVal = rowData[ci]
+
+      // 二次保护：空字符串写入 NULL 或数字列 → 跳过 SET（通常历史脏数据）
+      // 极端保护：任何空字符串值都转为 null，避免 MySQL 类型不兼容
+      const noopNewVal = (newVal === '') ? null : newVal
+
+      if (newVal !== undefined) {
+        // 被修改的列 → SET 用新值（空字符串转为 null）
+        setClauses.push(`\`${colName}\` = %s`)
+        setParams.push(noopNewVal)
+        // WHERE 用原值定位
+        if (oldVal === null || oldVal === undefined) {
+          whereClauses.push(`\`${colName}\` IS NULL`)
+        } else {
+          whereClauses.push(`\`${colName}\` = %s`)
+          whereParams.push(oldVal)
+        }
+      } else {
+        // 未修改的列（或跳过无意义修改）→ 只用做 WHERE
+        if (oldVal === null || oldVal === undefined) {
+          whereClauses.push(`\`${colName}\` IS NULL`)
+        } else {
+          whereClauses.push(`\`${colName}\` = %s`)
+          whereParams.push(oldVal)
+        }
+      }
+    }
+
+    if (setClauses.length === 0) continue
+
+    const database = props.dbName ? `\`${props.dbName}\`.` : ''
+    const sql = `UPDATE ${database}\`${tableName}\` SET ${setClauses.join(', ')} WHERE ${whereClauses.join(' AND ')} LIMIT 1;`
+    sqls.push({ sql, params: [...setParams, ...whereParams] })
+  }
+
+  if (sqls.length === 0) {
+    message.info('没有需要保存的修改')
+    saving.value = false
+    return
+  }
+
+  // 调试：打印每一条 SQL 和参数
+  console.log('=== saveEdits 调试 ===')
+  for (const s of sqls) {
+    console.log('SQL:', s.sql)
+    console.log('Params:', JSON.stringify(s.params))
+  }
+
+  try {
+    const res: any = await api.executeBatch(props.connId, sqls, props.dbName || undefined)
+    if (res.success) {
+      message.success(`成功保存 ${sqls.length} 行修改`)
+      modifiedCells.value.clear()
+    } else {
+      // 在错误消息中附带第一条 SQL 的参数信息，帮助定位脏数据
+      const debug1 = sqls.length > 0
+        ? `\nSQL: ${sqls[0].sql}\nParams: ${JSON.stringify(sqls[0].params)}`
+        : ''
+      message.error('保存失败: ' + (res.message || '') + debug1)
+    }
+  } catch (e: any) {
+    message.error('保存失败: ' + (e.message || '未知错误'))
+  } finally {
+    saving.value = false
+  }
 }
 
 // 导出当前结果集
@@ -234,6 +451,66 @@ async function exportResult() {
     message.error('导出失败: ' + (e.message || '未知错误'))
   } finally {
     exporting.value = false
+  }
+}
+
+// ── 保存查询 ──
+const saveQueryDialog = ref(false)
+const saveQueryName = ref('')
+const savingQuery = ref(false)
+const isUpdateOnly = ref(false)  // true = 直接覆盖已有名称
+
+function openSaveQueryDialog() {
+  if (props.savedQueryId && props.savedQueryName) {
+    // 已有保存的查询 → 询问覆盖还是另存
+    saveQueryName.value = props.savedQueryName
+    isUpdateOnly.value = true
+  } else {
+    saveQueryName.value = sqlText.value.trim().split('\n')[0].replace(/^--\s*/, '').slice(0, 30) || '新查询'
+    isUpdateOnly.value = false
+  }
+  saveQueryDialog.value = true
+}
+
+async function doSaveQuery(overwrite?: boolean) {
+  if (!saveQueryName.value.trim()) {
+    message.warning('请输入查询名称')
+    return
+  }
+  savingQuery.value = true
+  try {
+    if (props.savedQueryId && overwrite !== false) {
+      // 覆盖已保存的查询
+      const res: any = await api.updateQuery(props.savedQueryId, {
+        sql_text: sqlText.value,
+      })
+      if (res.success) {
+        message.success('查询已保存')
+        saveQueryDialog.value = false
+      } else {
+        message.error('保存失败: ' + (res.message || ''))
+      }
+    } else {
+      // 新建查询 (或在已有基础上另存为)
+      const res: any = await api.createQuery({
+        conn_id: props.connId,
+        db_name: props.dbName,
+        name: saveQueryName.value.trim(),
+        sql_text: sqlText.value,
+      })
+      if (res.success) {
+        message.success(`查询「${saveQueryName.value.trim()}」已保存`)
+        // 更新 props 中的 savedQueryId 和 title
+        // 由于 props 是只读的，我们通过更新 title 来反映当前编辑的是已保存查询
+        saveQueryDialog.value = false
+      } else {
+        message.error('保存失败: ' + (res.message || ''))
+      }
+    }
+  } catch (e: any) {
+    message.error('保存失败: ' + (e.message || '未知错误'))
+  } finally {
+    savingQuery.value = false
   }
 }
 </script>
@@ -273,8 +550,14 @@ async function exportResult() {
 
           <n-button size="tiny" quaternary @click="formatSql" title="格式化 SQL">美化</n-button>
           <n-button size="tiny" quaternary @click="clearSql" title="清空编辑器">清空</n-button>
+          <n-button size="tiny" quaternary @click="openSaveQueryDialog" title="保存当前 SQL 到侧边栏查询列表">
+            💾 保存查询
+          </n-button>
           <n-button size="tiny" type="primary" :loading="running" @click="runQuery">
             ▶ 执行
+          </n-button>
+          <n-button v-if="running" size="tiny" type="error" @click="stopQuery">
+            ⬛ 停止
           </n-button>
         </n-space>
       </div>
@@ -321,6 +604,15 @@ async function exportResult() {
         <n-space size="small">
           <n-tag v-if="queryTime > 0" size="tiny" type="info">{{ queryTime }}ms</n-tag>
           <n-button
+            v-if="modifiedCells.size > 0"
+            size="tiny"
+            type="warning"
+            :loading="saving"
+            @click="saveEdits"
+          >
+            💾 保存修改 ({{ modifiedCells.size }})
+          </n-button>
+          <n-button
             size="tiny"
             :loading="exporting"
             @click="exportResult"
@@ -334,62 +626,7 @@ async function exportResult() {
         <n-data-table
           :scroll-x="scrollX"
           single-line
-          :columns="result.columns.map((col, ci) => ({
-            title: col,
-            key: col,
-            width: 160,
-            resizable: true,
-            ellipsis: { tooltip: true },
-            render: (row: any, ri: number) => {
-              const absRow = (page - 1) * pageSize + ri
-              const cellKey = `${absRow}-${ci}`
-              const isEditing = editCell?.row === ri && editCell?.col === ci
-              const isModified = modifiedCells.has(cellKey)
-              const rawVal = row[col]
-              const cellVal = modifiedCells.get(cellKey) ?? rawVal
-              const isNull = rawVal === null || rawVal === undefined
-
-              if (isEditing) {
-                return h('input', {
-                  value: editValue,
-                  onInput: (e: any) => { editValue = e.target.value },
-                  onBlur: () => commitEdit(ri, ci),
-                  onKeydown: (e: any) => {
-                    if (e.key === 'Enter') commitEdit(ri, ci)
-                    if (e.key === 'Escape') editCell = null
-                  },
-                  style: {
-                    width: '100%',
-                    border: '2px solid #3498db',
-                    background: '#2a2a2a',
-                    color: '#e0e0e0',
-                    padding: '1px 4px',
-                    borderRadius: '2px',
-                    outline: 'none',
-                    fontSize: '12px',
-                    lineHeight: '18px',
-                  },
-                  autofocus: '',
-                })
-              }
-
-              return h('span', {
-                onClick: () => startEdit(ri, ci),
-                style: {
-                  cursor: 'text',
-                  color: isNull ? '#666' : (isModified ? '#6f6' : '#ccc'),
-                  fontStyle: isNull ? 'italic' : 'normal',
-                  background: isModified ? 'rgba(45, 100, 45, 0.15)' : 'transparent',
-                  padding: '0 4px',
-                  display: 'block',
-                  minHeight: '22px',
-                  lineHeight: '22px',
-                  fontSize: '12px',
-                },
-                title: isNull ? 'NULL' : (isModified ? `已修改: ${cellVal}` : String(cellVal)),
-              }, isNull ? 'NULL' : String(cellVal))
-            },
-          })) as any"
+           :columns="tableColumns"
           :data="displayRows.map((row, ri) => {
             const obj: any = {}
             result!.columns.forEach((col, ci) => { obj[col] = row[ci] })
@@ -438,6 +675,34 @@ async function exportResult() {
     </div>
 
     <n-empty v-else-if="result && !result.columns.length" description="查询执行成功，无返回数据" />
+
+    <!-- 保存查询对话框 -->
+    <n-modal v-model:show="saveQueryDialog" title="保存查询" preset="card" style="width: 450px" :mask-closable="false">
+      <n-space vertical>
+        <n-input
+          v-model:value="saveQueryName"
+          placeholder="输入查询名称..."
+          :disabled="isUpdateOnly && !!props.savedQueryId"
+        />
+        <n-input
+          v-model:value="sqlText"
+          type="textarea"
+          :autosize="{ minRows: 5, maxRows: 12 }"
+          placeholder="SQL 语句"
+        />
+      </n-space>
+      <template #footer>
+        <n-space justify="end">
+          <n-button @click="saveQueryDialog = false">取消</n-button>
+          <n-button v-if="isUpdateOnly" @click="doSaveQuery(false)" :loading="savingQuery">
+            另存为新查询
+          </n-button>
+          <n-button type="primary" @click="doSaveQuery()" :loading="savingQuery">
+            {{ isUpdateOnly ? '覆盖保存' : '保存' }}
+          </n-button>
+        </n-space>
+      </template>
+    </n-modal>
   </div>
 </template>
 

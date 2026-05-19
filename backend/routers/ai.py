@@ -258,25 +258,43 @@ def save_chat_history(req: ChatSaveRequest):
         messages_json = json.dumps([m.model_dump() for m in req.messages], ensure_ascii=False)
 
         with sqlite3.connect(DB_PATH) as conn:
-            # 查找同 conn_id+db_name 的已有记录
-            row = conn.execute(
-                'SELECT id FROM ai_chat_history WHERE conn_id=? AND db_name IS ?',
-                (req.conn_id, req.db_name)
-            ).fetchone()
-
-            if row:
-                conn.execute(
-                    'UPDATE ai_chat_history SET messages=?, context_summary=?, context_text=?, updated_at=? WHERE id=?',
-                    (messages_json, req.context_summary, req.context_text, now, row[0])
-                )
-                record_id = row[0]
+            if req.id:
+                # 按 id 更新（多会话区分）
+                row = conn.execute(
+                    'SELECT id FROM ai_chat_history WHERE id=?', (req.id,)
+                ).fetchone()
+                if row:
+                    conn.execute(
+                        'UPDATE ai_chat_history SET messages=?, context_summary=?, context_text=?, updated_at=? WHERE id=?',
+                        (messages_json, req.context_summary, req.context_text, now, row[0])
+                    )
+                    record_id = row[0]
+                else:
+                    cursor = conn.execute(
+                        'INSERT INTO ai_chat_history (conn_id, db_name, messages, context_summary, context_text, created_at, updated_at) '
+                        'VALUES (?, ?, ?, ?, ?, ?, ?)',
+                        (req.conn_id, req.db_name, messages_json, req.context_summary, req.context_text, now, now)
+                    )
+                    record_id = cursor.lastrowid
             else:
-                cursor = conn.execute(
-                    'INSERT INTO ai_chat_history (conn_id, db_name, messages, context_summary, context_text, created_at, updated_at) '
-                    'VALUES (?, ?, ?, ?, ?, ?, ?)',
-                    (req.conn_id, req.db_name, messages_json, req.context_summary, req.context_text, now, now)
-                )
-                record_id = cursor.lastrowid
+                # 向后兼容：按 conn_id+db_name 查找
+                row = conn.execute(
+                    'SELECT id FROM ai_chat_history WHERE conn_id=? AND db_name IS ?',
+                    (req.conn_id, req.db_name)
+                ).fetchone()
+                if row:
+                    conn.execute(
+                        'UPDATE ai_chat_history SET messages=?, context_summary=?, context_text=?, updated_at=? WHERE id=?',
+                        (messages_json, req.context_summary, req.context_text, now, row[0])
+                    )
+                    record_id = row[0]
+                else:
+                    cursor = conn.execute(
+                        'INSERT INTO ai_chat_history (conn_id, db_name, messages, context_summary, context_text, created_at, updated_at) '
+                        'VALUES (?, ?, ?, ?, ?, ?, ?)',
+                        (req.conn_id, req.db_name, messages_json, req.context_summary, req.context_text, now, now)
+                    )
+                    record_id = cursor.lastrowid
             conn.commit()
 
         return {"success": True, "data": {"id": record_id}}

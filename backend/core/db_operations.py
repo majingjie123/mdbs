@@ -43,26 +43,18 @@ class DBOperations:
             raise Exception(f"数据库连接失败 ({db_type}): {str(e)}")
 
     def disconnect(self, conn_data_or_id):
-        """断开连接，释放隧道资源。接受 conn_data dict 或 conn_id int。"""
+        """断开连接，释放隧道资源。接受 conn_id int 或 conn_data dict。"""
+        conn_id = None
+        conn_data = None
         if isinstance(conn_data_or_id, int):
-            # 如果是 conn_id，从存储读取连接数据
-            from models.db_storage import DBStorage
-            storage = DBStorage()
-            record = storage.get_connection(conn_data_or_id)
-            if not record:
-                return
-            conn_data = {
-                'ssh_enabled': record.get('ssh_enabled', False),
-                'ssh_host': record.get('ssh_host', ''),
-                'ssh_port': record.get('ssh_port', 0),
-                'ssh_user': record.get('ssh_user', ''),
-            }
+            conn_id = conn_data_or_id
         else:
             conn_data = conn_data_or_id
+            conn_id = conn_data.get('id')
 
-        if conn_data.get('ssh_enabled'):
+        if conn_id is not None:
             try:
-                self.ssh_manager.stop_tunnel(conn_data)
+                self.ssh_manager.stop_tunnel(conn_id)
             except Exception:
                 pass
 
@@ -1031,6 +1023,9 @@ class DBOperations:
                     for sql, params in sql_list:
                         if cancel_event and cancel_event.is_set():
                             raise Exception("批处理已中途取消")
+                        # 安全保护：将空字符串转为 None，避免与 DOUBLE/INT 列类型冲突
+                        if params:
+                            params = [None if p == '' else p for p in params]
                         affected_total += cursor.execute(sql, params)
                     conn.commit()
             else:

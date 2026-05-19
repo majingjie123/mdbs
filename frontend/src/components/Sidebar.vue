@@ -22,6 +22,8 @@ interface TreeNode {
   schemaName?: string
   nodeType?: string
   rawData?: any
+  queryId?: number       // 保存的查询 ID
+  querySql?: string      // 保存的查询 SQL
 }
 
 const treeData = ref<TreeNode[]>([])
@@ -46,6 +48,61 @@ const createDbConnId = ref(0)
 const newDbName = ref('')
 const creatingDb = ref(false)
 const showAISessionWizard = ref(false)
+
+// ── 查询重命名 ──
+const showRenameDialog = ref(false)
+const renameQueryId = ref(0)
+const renameQueryName = ref('')
+const renamingQuery = ref(false)
+
+async function doRenameQuery() {
+  if (!renameQueryName.value.trim() || !renameQueryId.value) return
+  renamingQuery.value = true
+  try {
+    const res: any = await api.updateQuery(renameQueryId.value, { name: renameQueryName.value.trim() })
+    if (res.success) {
+      message.success('查询已重命名')
+      showRenameDialog.value = false
+      // 刷新查询列表
+      expandedKeys.value = [...expandedKeys.value]
+      // 找到当前展开的查询文件夹并重新加载
+      for (const key of expandedKeys.value) {
+        const find = (nodes: TreeNode[]): TreeNode | null => {
+          for (const n of nodes) {
+            if (n.key === key) return n
+            if (n.children) { const f = find(n.children); if (f) return f }
+          }
+          return null
+        }
+        const node = find(treeData.value)
+        if (node && node.key.includes('/queries')) {
+          node.children = []
+          await loadQueriesIntoFolder(node)
+          break
+        }
+      }
+    } else {
+      message.error('重命名失败: ' + (res.message || ''))
+    }
+  } catch (e: any) {
+    message.error('重命名失败: ' + (e.message || ''))
+  } finally {
+    renamingQuery.value = false
+  }
+}
+
+function findTreeFolder(nodes: TreeNode[], connId?: number, dbName?: string): TreeNode | null {
+  for (const n of nodes) {
+    if (n.nodeType === 'folder' && n.key.includes('/queries') && n.connId === connId && n.dbName === dbName) {
+      return n
+    }
+    if (n.children) {
+      const found = findTreeFolder(n.children, connId, dbName)
+      if (found) return found
+    }
+  }
+  return null
+}
 
 async function doCreateDb() {
   if (!newDbName.value.trim()) {
@@ -236,6 +293,33 @@ async function loadFuncsIntoFolder(folderNode: TreeNode) {
   }))
 }
 
+// ── 加载保存的查询列表 ──
+async function loadQueriesIntoFolder(folderNode: TreeNode) {
+  const { connId, dbName, key } = folderNode
+  if (!connId) return
+  const dbNameStr = dbName || ''
+  try {
+    const res: any = await api.listSavedQueries(connId, dbNameStr)
+    if (!res?.success) {
+      folderNode.children = [{ label: '加载失败', key: `${key}/err`, isLeaf: true }]
+      return
+    }
+    folderNode.children = (res.data || []).map((q: any) => ({
+      label: q.name,
+      key: `${key}/q-${q.id}`,
+      isLeaf: true,
+      nodeType: 'saved-query',
+      connId,
+      dbName,
+      queryId: q.id,
+      querySql: q.sql_text,
+      rawData: q,
+    }))
+  } catch (e: any) {
+    folderNode.children = [{ label: `❌ ${e.message || '加载失败'}`, key: `${key}/err`, isLeaf: true }]
+  }
+}
+
 // ── 展开节点事件 ──
 async function onExpand(node: TreeNode) {
   if (node.isLeaf) return
@@ -266,6 +350,8 @@ async function onExpand(node: TreeNode) {
       await loadViewsIntoFolder(node)
     } else if (parts.some((p) => p === 'funcs')) {
       await loadFuncsIntoFolder(node)
+    } else if (parts.some((p) => p === 'queries')) {
+      await loadQueriesIntoFolder(node)
     } else {
       node.children = []
     }
@@ -330,6 +416,18 @@ function onDblClick(node: TreeNode) {
       dbName: node.dbName || '',
       schemaName: node.schemaName || '',
       initialSql,
+    })
+    return
+  }
+
+  // 保存的查询 → 打开 SQLWorkbench
+  if (type === 'saved-query') {
+    store.openTab('sql-workbench', node.label, {
+      connId: node.connId,
+      dbName: node.dbName || '',
+      initialSql: node.querySql || '',
+      savedQueryId: node.queryId,
+      savedQueryName: node.label,
     })
     return
   }
@@ -549,8 +647,56 @@ function handleCtxAction(action: string | undefined) {
       navigator.clipboard.writeText(node.label)
       message.success(`已复制: ${node.label}`)
       break
+
+    // ── 保存的查询 ──
+    case 'open-saved-query': {
+      store.openTab('sql-workbench', node.label, {
+        connId,
+        dbName,
+        initialSql: node.querySql || '',
+        savedQueryId: node.queryId,
+        savedQueryName: node.label,
+      })
+      break
+    }
+    case 'rename-saved-query': {
+      renameQueryId.value = node.queryId || 0
+      renameQueryName.value = node.label
+      showRenameDialog.value = true
+      break
+    }
+    case 'delete-saved-query': {
+      dialog.warning({
+        title: '删除保存的查询',
+        content: `确定要删除查询「${node.label}」吗？`,
+        positiveText: '删除',
+        negativeText: '取消',
+        onPositiveClick: async () => {
+          if (node.queryId) {
+            try {
+              const res: any = await api.deleteQuery(node.queryId)
+              if (res.success) {
+                message.success('查询已删除')
+                // 刷新查询列表
+                expandedKeys.value = [...expandedKeys.value]
+                const queriesFolder = findTreeFolder(treeData.value, node.connId, node.dbName)
+                if (queriesFolder) {
+                  queriesFolder.children = []
+                  await loadQueriesIntoFolder(queriesFolder)
+                }
+              } else {
+                message.error('删除失败: ' + (res.message || ''))
+              }
+            } catch (e: any) {
+              message.error('删除失败: ' + (e.message || ''))
+            }
+          }
+        },
+      })
+      break
+    }
+
     default:
-      message.info(`功能 ${action} 开发中`)
   }
 }
 
@@ -617,6 +763,13 @@ function getMenuItems(nodeType: string = '') {
         { label: '复制名称', action: 'copy-func-name' },
         { separator: true },
         { label: '刷新', action: 'refresh' },
+      ]
+    case 'saved-query':
+      return [
+        { label: '📂 打开', action: 'open-saved-query' },
+        { separator: true },
+        { label: '✏️ 重命名', action: 'rename-saved-query' },
+        { label: '🗑️ 删除', action: 'delete-saved-query' },
       ]
     default:
       return [
@@ -693,6 +846,15 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
       <template #footer>
         <n-button @click="showCreateDbDialog = false">取消</n-button>
         <n-button type="primary" @click="doCreateDb" :loading="creatingDb">创建</n-button>
+      </template>
+    </n-modal>
+
+    <!-- 查询重命名对话框 -->
+    <n-modal v-model:show="showRenameDialog" title="重命名查询" preset="card" style="width: 400px">
+      <n-input v-model:value="renameQueryName" placeholder="输入新名称" />
+      <template #footer>
+        <n-button @click="showRenameDialog = false">取消</n-button>
+        <n-button type="primary" @click="doRenameQuery" :loading="renamingQuery">确定</n-button>
       </template>
     </n-modal>
 

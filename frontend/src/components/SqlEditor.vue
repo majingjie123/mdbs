@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, watch, computed } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { Codemirror } from 'vue-codemirror'
 import { EditorView, keymap } from '@codemirror/view'
 import { EditorState } from '@codemirror/state'
@@ -78,7 +78,7 @@ function sqlCompletions(context: CompletionContext) {
   const word = context.matchBefore(/\w+/)
   if (!word || (word.from === word.to && !context.explicit)) return null
 
-  const options = completions.value.map(c => ({
+  const options = completions.value.map((c: { label: string; type: string; detail?: string }) => ({
     label: c.label,
     type: c.type === 'table' ? 'keyword' : 'variable',
     detail: c.type === 'column' ? c.detail : undefined,
@@ -106,8 +106,8 @@ function sqlCompletions(context: CompletionContext) {
   return { from: word.from, options }
 }
 
-// 快捷键：Ctrl+Enter / F5 执行 + 搜索
-const extensions = computed(() => [
+// 快捷键：Ctrl+Enter / F5 执行 + 搜索（数组恒稳定，避免重初始化 CodeMirror）
+const extensions = [
   sql({ dialect: MySQL }),
   oneDark,
   EditorView.lineWrapping,
@@ -119,7 +119,7 @@ const extensions = computed(() => [
     indentWithTab,
     ...defaultKeymap,
   ]),
-])
+]
 </script>
 
 <template>

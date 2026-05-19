@@ -145,6 +145,21 @@ class DBStorage:
 
             conn.commit()
 
+        # 9. 创建保存的查询表
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS saved_queries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                conn_id INTEGER NOT NULL,
+                db_name TEXT DEFAULT '',
+                name TEXT NOT NULL,
+                sql_text TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+        ''')
+
+        conn.commit()
+
     def save_workbench_log(self, script_path, content):
         """持久化保存工作台的所有日志文本，按脚本路径绑定"""
         if not script_path: return
@@ -485,4 +500,61 @@ class DBStorage:
             # 检查目标路径是否已有历史，如果有则合并或替换（这里选择替换以保证一致性）
             conn.execute('DELETE FROM ai_chat_history WHERE script_path = ?', (new_path,))
             conn.execute('UPDATE ai_chat_history SET script_path = ? WHERE script_path = ?', (new_path, old_path))
+            conn.commit()
+
+    # ── 保存的查询 (saved_queries) ─────────────────────────────────
+
+    def list_saved_queries(self, conn_id, db_name=None):
+        """列出某个连接下的保存查询，可选按数据库过滤"""
+        with sqlite3.connect(self._db_path) as conn:
+            if db_name:
+                rows = conn.execute(
+                    'SELECT id, conn_id, db_name, name, sql_text, created_at, updated_at FROM saved_queries WHERE conn_id=? AND db_name=? ORDER BY updated_at DESC',
+                    (conn_id, db_name)
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    'SELECT id, conn_id, db_name, name, sql_text, created_at, updated_at FROM saved_queries WHERE conn_id=? ORDER BY updated_at DESC',
+                    (conn_id,)
+                ).fetchall()
+        return [
+            {
+                'id': r[0], 'conn_id': r[1], 'db_name': r[2],
+                'name': r[3], 'sql_text': r[4],
+                'created_at': r[5], 'updated_at': r[6],
+            }
+            for r in rows
+        ]
+
+    def save_query(self, data):
+        """新增或更新保存的查询。如果 data 中有 id 则更新，否则新增"""
+        now = datetime.now().isoformat(timespec='seconds')
+        if data.get('id'):
+            # 更新
+            qid = data.pop('id')
+            data['updated_at'] = now
+            sets = ', '.join(f'{k}=?' for k in data.keys())
+            params = list(data.values()) + [qid]
+            with sqlite3.connect(self._db_path) as conn:
+                conn.execute(f'UPDATE saved_queries SET {sets} WHERE id=?', params)
+                conn.commit()
+            return qid
+        else:
+            # 新增
+            data.pop('id', None)
+            data['created_at'] = now
+            data['updated_at'] = now
+            cols = ', '.join(data.keys())
+            placeholders = ', '.join('?' for _ in data)
+            params = list(data.values())
+            with sqlite3.connect(self._db_path) as conn:
+                cur = conn.cursor()
+                cur.execute(f'INSERT INTO saved_queries ({cols}) VALUES ({placeholders})', params)
+                conn.commit()
+                return cur.lastrowid
+
+    def delete_saved_query(self, query_id):
+        """删除保存的查询"""
+        with sqlite3.connect(self._db_path) as conn:
+            conn.execute('DELETE FROM saved_queries WHERE id=?', (query_id,))
             conn.commit()

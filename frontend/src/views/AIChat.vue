@@ -190,15 +190,18 @@ const editMsgText = ref('')
 
 // 会话管理
 let sid = 0
-const sessions = ref([{ id: ++sid, name: '会话 1', msgs: [] as {role:string;content:string}[] }])
+const sessions = ref([{ id: ++sid, name: '会话 1', msgs: [] as {role:string;content:string}[], ctxText: '', ctxInfo: '', historyId: null as number|null }])
 const activeSessionId = ref(1)
-const messages = computed(() => sessions.value.find(s=>s.id===activeSessionId.value)?.msgs||[])
+const activeSession = computed(() => sessions.value.find(s=>s.id===activeSessionId.value))
+const messages = computed(() => activeSession.value?.msgs||[])
+// 上下文（按会话隔离，通过 computed 从当前会话读取）
+const contextText = computed(() => activeSession.value?.ctxText ?? '')
+const contextInfo = computed(() => activeSession.value?.ctxInfo ?? '')
 
 function switchSession(id: number) { activeSessionId.value = id }
 function addSession() {
-  sessions.value.push({ id: ++sid, name: `会话 ${sid}`, msgs: [] })
+  sessions.value.push({ id: ++sid, name: `会话 ${sid}`, msgs: [], ctxText: '', ctxInfo: '', historyId: null })
   activeSessionId.value = sid
-  contextText.value = ''; contextInfo.value = ''
 }
 function closeSession(id: number) {
   if (sessions.value.length <= 1) return
@@ -226,8 +229,6 @@ async function loadConfigs() {
 }
 
 // 上下文 - 表选择对话框
-const contextText = ref('')
-const contextInfo = ref('')
 const contextLoading = ref(false)
 const showContext = ref(false)
 
@@ -278,11 +279,9 @@ async function confirmBuildContext() {
       tables: selected,
     })
     if (r.success && r.data) {
-      contextText.value = r.data.context
-      const db = (props.dbName||props.db||'')
+      const sess = sessions.value.find(s=>s.id===activeSessionId.value)
+      if (sess) { sess.ctxText = r.data.context; sess.ctxInfo = `${props.dbName||props.db||''} (${r.data.db_type}) - ${selected.length} 张表` }
       const loadedCount = r.data.tables ?? 0
-      // 显示用户选择的表数量（而非后端返回的解析数量），避免loadedCount为0时显示异常
-      contextInfo.value = `${db} (${r.data.db_type}) - ${selected.length} 张表`
       if (loadedCount === 0) {
         msg.warning('未能查到任何表的字段信息，请检查数据库连接及表名是否正确')
       } else if (loadedCount < selected.length) {
@@ -316,9 +315,8 @@ function cancelEditMsg() { editMsgIdx.value = null }
 function clearContext() {
   dialog.warning({title:'清空上下文',content:'确定清空表结构上下文吗？清空后 AI 将不再参考表结构信息。',positiveText:'确定',
     onPositiveClick:()=>{
-      contextText.value = ''; contextInfo.value = ''
       const sess = sessions.value.find(s=>s.id===activeSessionId.value)
-      if (sess) sess.msgs.push({role:'system',content:'已清空表结构上下文'})
+      if (sess) { sess.ctxText = ''; sess.ctxInfo = ''; sess.msgs.push({role:'system',content:'已清空表结构上下文'}) }
     }
   })
 }
@@ -453,6 +451,12 @@ async function send() {
     })
     if (!resp.ok) { const e=await resp.json().catch(()=>({message:'请求失败'})); throw new Error(e.message||e.detail||'请求失败') }
 
+    // Bug 3 修复：检查响应类型，非 SSE 直接解析 JSON 错误
+    if (!resp.headers.get('content-type')?.includes('text/event-stream')) {
+      const json = await resp.json()
+      throw new Error(json.message || '请求失败')
+    }
+
     const reader = resp.body!.getReader()
     const decoder = new TextDecoder()
     let buf = '', full = '', idx = sess.msgs.length - 1
@@ -546,13 +550,21 @@ async function saveChat() {
   const sess = sessions.value.find(s=>s.id===activeSessionId.value)
   if (!sess || !sess.msgs.length) { msg.warning('没有消息'); return }
   try {
-    const summary = sess.msgs[0]?.content?.slice(0,100)||''
+    // Bug 6 修复：摘要取第一条 user 消息而非第一条消息
+    let summary = ''
+    for (const m of sess.msgs) {
+      if (m.role === 'user') { summary = m.content.slice(0, 100); break }
+    }
     const r:any = await api.aiSaveHistory({
+      id: sess.historyId || null,
       conn_id: props.connId||null, db_name: props.db||null,
       messages: sess.msgs, context_summary: summary,
-      context_text: contextText.value,
+      context_text: sess.ctxText,
     })
-    if (r.success) msg.success('已保存')
+    if (r.success) {
+      sess.historyId = r.data?.id ?? sess.historyId
+      msg.success('已保存')
+    }
     else msg.error(r.message||'保存失败')
   } catch(e:any) { msg.error('保存失败: '+(e.message||'')) }
 }
@@ -566,16 +578,20 @@ async function loadHistory() {
 }
 
 async function loadHist(row: any) {
+  editMsgIdx.value = null  // Bug 8：重置编辑状态
   try {
     const r:any = await api.aiGetHistory(row.id)
     if (r.success && r.data) {
       const ms = r.data.messages||[]
       if (Array.isArray(ms)) {
         const sess = sessions.value.find(s=>s.id===activeSessionId.value)
-        if (sess) sess.msgs = ms
+        if (sess) {
+          sess.msgs = ms
+          sess.historyId = row.id  // Bug 2：记录 historyId 以便后续按 id 更新
+          sess.ctxText = r.data.context_text||''
+          sess.ctxInfo = r.data.db_name||''
+        }
       }
-      contextInfo.value = r.data.db_name||''
-      contextText.value = r.data.context_text||''
       showHistory.value = false; msg.success('已加载'); scrollDown()
     }
   } catch(e:any) { msg.error('加载失败') }
@@ -586,7 +602,6 @@ async function clearChat() {
     onPositiveClick:()=>{
       const sess = sessions.value.find(s=>s.id===activeSessionId.value)
       if (sess) sess.msgs = []
-      contextText.value = ''; contextInfo.value = ''
     }
   })
 }
@@ -610,11 +625,13 @@ async function autoLoadContext() {
         tables,
       })
       if (r.success && r.data) {
-        contextText.value = r.data.context
+        const sess = sessions.value.find(s=>s.id===activeSessionId.value)
+        if (sess) sess.ctxText = r.data.context
         const loadedCount = r.data.tables ?? 0
-        contextInfo.value = `${tables.length} 个对象 (${r.data.db_type})`
+        if (sess) sess.ctxInfo = `${tables.length} 个对象 (${r.data.db_type})`
         if (loadedCount === 0) {
           msg.warning('未能查到任何表和视图的字段信息，请检查数据库连接及对象名是否正确')
+          if (sess) sess.ctxInfo = ''
         } else {
           msg.success(`已加载 ${tables.length} 个对象的上下文`)
         }
@@ -640,11 +657,13 @@ async function autoLoadContext() {
         tables: [props.tableName],
       })
       if (r.success && r.data) {
-        contextText.value = r.data.context
+        const sess = sessions.value.find(s=>s.id===activeSessionId.value)
+        if (sess) sess.ctxText = r.data.context
         const loadedCount = r.data.tables ?? 0
-        contextInfo.value = `${props.tableName} (${r.data.db_type}) - ${loadedCount} 张表`
+        if (sess) sess.ctxInfo = `${props.tableName} (${r.data.db_type}) - ${loadedCount} 张表`
         if (loadedCount === 0) {
           msg.warning(`未能查到表 "${props.tableName}" 的字段信息，请检查表名是否正确`)
+          if (sess) sess.ctxInfo = ''
         } else {
           msg.success(`已加载表 "${props.tableName}" 的结构`)
         }
