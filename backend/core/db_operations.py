@@ -898,15 +898,15 @@ class DBOperations:
         _flush()
         return result
 
-    def execute_sql(self, conn_data, sql, database=None, params=None, cancel_event=None, schema=None, progress_callback=None, limit=0):
-        """执行任意 SQL 并返回 (columns, rows, affected_count, is_query, truncated)"""
+    def execute_sql(self, conn_data, sql, database=None, params=None, cancel_event=None, schema=None, progress_callback=None, limit=1000, offset=0):
+        """执行任意 SQL 并返回 (columns, rows, affected_count, is_query, truncated, total)"""
         if cancel_event and cancel_event.is_set():
             raise Exception("操作已取消")
 
         # 预处理：拆分多条语句
         statements = self.split_sql_statements(sql, progress_callback=progress_callback)
         if not statements:
-            return [], [], 0, False
+            return [], [], 0, False, False, 0
             
         db_type = conn_data.get('db_type', 'MySQL')
         conn = self.get_connection(conn_data, database=database)
@@ -952,10 +952,11 @@ class DBOperations:
                                 else:
                                     rows = raw_rows
                                 truncated = False
-                                if limit > 0 and len(rows) > limit:
-                                    rows = rows[:limit]
-                                    truncated = True
-                                last_query_res = (columns, rows, len(rows), True, truncated)
+                                total = len(rows)
+                                if limit > 0:
+                                    # 服务端分页
+                                    rows = rows[offset:offset + limit]
+                                last_query_res = (columns, rows, total, True, truncated, total)
                             else:
                                 total_affected += cursor.rowcount
                         
@@ -968,18 +969,18 @@ class DBOperations:
                     
                     if last_query_res:
                         return last_query_res
-                    return ([], [], total_affected, False, False)
+                    return ([], [], total_affected, False, False, 0)
             else:
                 # PostgreSQL (pg8000.native)
                 try:
                     conn.run("BEGIN")
                     # 同步极致动态步长逻辑
                     update_step = max(100, min(5000, total_stmts // 200))
-                    
+
                     for i, stmt in enumerate(statements):
                         if cancel_event and cancel_event.is_set():
                             raise Exception(f"批处理执行到第 {i+1} 条语句时被取消")
-                        
+
                         if progress_callback and (i % update_step == 0 or i == total_stmts - 1):
                             pct = int(((i+1) / total_stmts) * 100)
                             progress_callback(pct, f"正在执行第 {i+1}/{total_stmts} 条语句...")
@@ -991,14 +992,22 @@ class DBOperations:
                                 rows = conn.run(stmt, *params)
                         else:
                             rows = conn.run(stmt)
-                        
+
                         if hasattr(conn, 'columns') and conn.columns:
                             columns = [col['name'] for col in conn.columns]
+                            # DictCursor 返回 dict_rows，转换为 list_rows
+                            if rows and isinstance(rows[0], dict):
+                                rows = [[row.get(col['name']) for col in conn.columns] for row in rows]
+                            truncated = False
+                            total = len(rows)
+                            if limit > 0:
+                                rows = rows[offset:offset + limit]
+                            last_query_res = (columns, rows, total, True, truncated, total)
                     conn.run("COMMIT")
-                    
+
                     if last_query_res:
                         return last_query_res
-                    return ([], [], total_affected, False, False)
+                    return ([], [], total_affected, False, False, 0)
                 except Exception:
                     conn.run("ROLLBACK")
                     raise

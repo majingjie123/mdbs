@@ -309,14 +309,22 @@ onUnmounted(() => {
 
 // ── SQL 执行 ──
 const page = ref(1)
-const pageSize = ref(100)
+const pageSize = ref(1000)
 const allRows = ref<any[][]>([])
-const displayRows = computed(() => {
-  const start = (page.value - 1) * pageSize.value
-  return allRows.value.slice(start, start + pageSize.value)
+// 后端已分页，displayRows 即返回结果
+const displayRows = computed(() => allRows.value)
+const totalPages = computed(() => Math.max(1, Math.ceil(totalRows.value / pageSize.value)))
+const totalRows = computed(() => result.value?.total ?? allRows.value.length)
+
+// 上次查询参数，用于翻页时重新请求
+const lastQuery = reactive<{ sql: string; database?: string; schema?: string }>({ sql: '' })
+
+// 翻页时重新请求服务端
+watch([page, pageSize], () => {
+  if (lastQuery.sql && result.value?.is_query) {
+    runQueryPage()
+  }
 })
-const totalPages = computed(() => Math.max(1, Math.ceil(allRows.value.length / pageSize.value)))
-const totalRows = computed(() => allRows.value.length)
 
 const tableColumns = computed(() => {
   if (!result.value?.columns) return []
@@ -335,17 +343,43 @@ async function runQuery() {
   const startTime = performance.now()
   abortController.value = new AbortController()
   try {
-    const r: any = await api.executeSQL(props.connId, sqlText.value, props.db || props.dbName || undefined, props.schemaName || undefined, abortController.value.signal)
+    lastQuery.sql = sqlText.value
+    lastQuery.database = props.db || props.dbName || undefined
+    lastQuery.schema = props.schemaName || undefined
+    const offset = 0
+    const r: any = await api.executeSQL(props.connId, sqlText.value, props.db || props.dbName || undefined, props.schemaName || undefined, abortController.value.signal, pageSize.value, offset)
     queryTime.value = Math.round(performance.now() - startTime)
     if (r.success && r.data) {
       result.value = r.data
       allRows.value = r.data.rows || []
     } else {
-      result.value = { columns: [], rows: [], is_query: false, affected: 0, error: r.message || '执行失败' }
+      result.value = { columns: [], rows: [], is_query: false, affected: 0, error: r.message || '执行失败', total: 0 }
     }
   } catch (e: any) {
     queryTime.value = Math.round(performance.now() - startTime)
-    result.value = { columns: [], rows: [], is_query: false, affected: 0, error: e.message || '请求失败' }
+    result.value = { columns: [], rows: [], is_query: false, affected: 0, error: e.message || '请求失败', total: 0 }
+  } finally { running.value = false; abortController.value = null }
+}
+
+/** 翻页查询（不重置 page，不记录历史） */
+async function runQueryPage() {
+  if (!props.connId || !lastQuery.sql) return
+  running.value = true
+  const startTime = performance.now()
+  abortController.value = new AbortController()
+  try {
+    const offset = (page.value - 1) * pageSize.value
+    const r: any = await api.executeSQL(props.connId, lastQuery.sql, lastQuery.database, lastQuery.schema, abortController.value.signal, pageSize.value, offset)
+    queryTime.value = Math.round(performance.now() - startTime)
+    if (r.success && r.data) {
+      result.value = r.data
+      allRows.value = r.data.rows || []
+    }
+  } catch (e: any) {
+    if (e.name === 'AbortError' || e.message?.includes('abort')) return
+    queryTime.value = Math.round(performance.now() - startTime)
+    result.value = null
+    allRows.value = []
   } finally { running.value = false; abortController.value = null }
 }
 

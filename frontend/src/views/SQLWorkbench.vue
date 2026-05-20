@@ -103,15 +103,23 @@ onMounted(loadHistory)
 
 // ── 分页 ──
 const page = ref(1)
-const pageSize = ref(100)
+const pageSize = ref(1000)
 
 const allRows = shallowRef<any[][]>([])
-const displayRows = computed(() => {
-  const start = (page.value - 1) * pageSize.value
-  return allRows.value.slice(start, start + pageSize.value)
+// 后端已分页，displayRows 即返回结果
+const displayRows = computed(() => allRows.value)
+const totalRows = computed(() => result.value?.total ?? allRows.value.length)
+const totalPages = computed(() => Math.max(1, Math.ceil(totalRows.value / pageSize.value)))
+
+// 上次查询参数，用于翻页时重新请求
+const lastQuery = reactive<{ sql: string; database?: string }>({ sql: '' })
+
+// 翻页时重新请求服务端
+watch([page, pageSize], () => {
+  if (lastQuery.sql && result.value?.is_query) {
+    runQueryPage()
+  }
 })
-const totalPages = computed(() => Math.max(1, Math.ceil(allRows.value.length / pageSize.value)))
-const totalRows = computed(() => allRows.value.length)
 
 // 将二维数组转为对象数组（缓存，仅 displayRows 或 columns 变化时重算）
 const mappedRows = computed(() => {
@@ -273,12 +281,16 @@ async function runQuery() {
   abortController.value = ac
 
   try {
+    lastQuery.sql = sqlText.value
+    const offset = (page.value - 1) * pageSize.value
     const res: any = await api.executeSQL(
       props.connId,
       sqlText.value,
       props.dbName || undefined,
       undefined,
       ac.signal,
+      pageSize.value,
+      offset,
     )
 
     if (res.success) {
@@ -302,6 +314,40 @@ async function runQuery() {
   } finally {
     abortController.value = null
     queryTime.value = Math.round((performance.now() - t0) * 10) / 10 // ms, 1 decimal
+    running.value = false
+  }
+}
+
+/** 翻页查询（不重置 page，不记录历史） */
+async function runQueryPage() {
+  if (!props.connId || !lastQuery.sql) return
+  running.value = true
+  const t0 = performance.now()
+  const ac = new AbortController()
+  abortController.value = ac
+  try {
+    const offset = (page.value - 1) * pageSize.value
+    const res: any = await api.executeSQL(
+      props.connId,
+      lastQuery.sql,
+      lastQuery.database || props.dbName || undefined,
+      undefined,
+      ac.signal,
+      pageSize.value,
+      offset,
+    )
+    if (res.success && res.data) {
+      result.value = res.data
+      allRows.value = res.data.rows || []
+      queryTime.value = Math.round((performance.now() - t0) * 10) / 10
+    }
+  } catch (e: any) {
+    if (e.name === 'AbortError' || e.message?.includes('abort')) return
+    error.value = e.message
+    result.value = null
+    allRows.value = []
+  } finally {
+    abortController.value = null
     running.value = false
   }
 }
@@ -800,6 +846,7 @@ async function doSaveQuery(overwrite?: boolean) {
               { label: '100 条', value: 100 },
               { label: '200 条', value: 200 },
               { label: '500 条', value: 500 },
+              { label: '1000 条', value: 1000 },
             ]"
             size="tiny"
             style="width: 90px"
