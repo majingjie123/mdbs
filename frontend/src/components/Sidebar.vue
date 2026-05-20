@@ -847,7 +847,7 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
     <div v-show="!collapsed" class="tree-container">
       <n-tree
         :data="treeData as any"
-        :default-expanded-keys="expandedKeys"
+        :expanded-keys="expandedKeys"
         :selected-keys="selectedKey ? [selectedKey] : []"
         :filter="tableFilter"
         :pattern="String(filterVersion)"

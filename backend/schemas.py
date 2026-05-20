@@ -35,7 +35,6 @@ class ConnectionCreate(BaseModel):
 
 
 class ConnectionUpdate(BaseModel):
-    conn_id: int
     data: ConnData
 
 
