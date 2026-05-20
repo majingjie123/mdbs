@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, h, shallowRef, markRaw, nextTick, onMounted, onUnmounted } from 'vue'
+import { ref, computed, h, shallowRef, markRaw, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import { api, ExecResult } from '../api'
 import { useMessage } from 'naive-ui'
 import SqlEditor from '../components/SqlEditor.vue'
@@ -27,6 +27,7 @@ const result = ref<ExecResult | null>(null)
 const running = ref(false)
 const error = ref('')
 const abortController = ref<AbortController | null>(null)
+const _lastSql = ref('')  // 追踪上次执行的 SQL 文本，用于判断是否重置页码
 
 // ── 查询耗时 ──
 const queryTime = ref(0)
@@ -103,15 +104,21 @@ onMounted(loadHistory)
 
 // ── 分页 ──
 const page = ref(1)
-const pageSize = ref(100)
+const pageSize = ref(1000)
 
 const allRows = shallowRef<any[][]>([])
 const displayRows = computed(() => {
-  const start = (page.value - 1) * pageSize.value
-  return allRows.value.slice(start, start + pageSize.value)
+  // 服务端分页：allRows 就是当前页数据
+  return allRows.value
 })
-const totalPages = computed(() => Math.max(1, Math.ceil(allRows.value.length / pageSize.value)))
-const totalRows = computed(() => allRows.value.length)
+const totalPages = computed(() => Math.max(1, Math.ceil((result.value?.total_count || 0) / pageSize.value)))
+const totalRows = computed(() => result.value?.total_count || allRows.value.length)
+
+watch([page, pageSize], () => {
+  if (result.value) {
+    runQuery()
+  }
+})
 
 // 将二维数组转为对象数组（缓存，仅 displayRows 或 columns 变化时重算）
 const mappedRows = computed(() => {
@@ -199,8 +206,7 @@ const tableColumns = computed(() => {
     title: col,
     key: col,
     width: 160,
-    resizable: true,
-    ellipsis: { tooltip: true },
+    ellipsis: true,
     render: (row: any, ri: number) => {
       // 用 _cellVersion 创建唯一 reactivity dep，读取非响应式 store 避免海量 deps
       _cellVersion.value; // 只读一次，建立单个 dep
@@ -279,12 +285,18 @@ async function runQuery() {
       props.dbName || undefined,
       undefined,
       ac.signal,
+      page.value,
+      pageSize.value,
     )
 
     if (res.success) {
+      // 仅当 SQL 内容变化时重置到第一页，翻页不重置
+      if (sqlText.value !== _lastSql.value) {
+        page.value = 1
+        _lastSql.value = sqlText.value
+      }
       result.value = res.data
       allRows.value = res.data.rows || []
-      page.value = 1
       _modifiedMap.clear()
       _cellVersion.value++
       addHistory(sqlText.value)
@@ -720,7 +732,7 @@ async function doSaveQuery(overwrite?: boolean) {
           查询结果
           <n-tag v-if="result" size="tiny" :type="result.is_query ? 'success' : 'warning'">
             <template v-if="result.is_query">
-              {{ totalRows }} 行
+              {{ result?.total_count ?? allRows.length }} 行
             </template>
             <template v-else>
               {{ result.affected }} 行受影响
@@ -772,8 +784,6 @@ async function doSaveQuery(overwrite?: boolean) {
             single-line
             :columns="tableColumns"
             :data="mappedRows"
-            :bordered="true"
-            striped
             :max-height="tableMaxHeight"
             virtual-scroll
             :row-height="28"
@@ -800,9 +810,12 @@ async function doSaveQuery(overwrite?: boolean) {
               { label: '100 条', value: 100 },
               { label: '200 条', value: 200 },
               { label: '500 条', value: 500 },
+              { label: '1000 条', value: 1000 },
+              { label: '2000 条', value: 2000 },
+              { label: '5000 条', value: 5000 },
             ]"
             size="tiny"
-            style="width: 90px"
+            style="width: 110px"
           />
           <n-button size="tiny" :disabled="page <= 1" @click="page--">上一页</n-button>
           <span class="page-info">

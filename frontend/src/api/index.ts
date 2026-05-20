@@ -69,6 +69,7 @@ export interface ExecResult {
   affected: number
   is_query: boolean
   error?: string
+  total_count: number
 }
 
 // ── API 方法 ─────────────────────────────────────────
@@ -253,8 +254,8 @@ export const api = {
     http.delete(`/ai/history/${id}`) as Promise<ApiResponse>,
 
   // SQL 执行
-  executeSQL: (connId: number, sql: string, database?: string, schema?: string, signal?: AbortSignal) =>
-    http.post('/query/execute', { conn_id: connId, sql, database, schema_name: schema }, { signal }) as Promise<ApiResponse<ExecResult>>,
+  executeSQL: (connId: number, sql: string, database?: string, schema?: string, signal?: AbortSignal, page?: number, pageSize?: number) =>
+    http.post('/query/execute', { conn_id: connId, sql, database, schema_name: schema, page: page || 1, page_size: pageSize || 1000 }, { signal }) as Promise<ApiResponse<ExecResult>>,
   executeBatch: (connId: number, sqls: { sql: string; params?: any[] }[], database?: string, schema?: string) =>
     http.post('/query/batch', { conn_id: connId, sqls, database, schema_name: schema }) as Promise<ApiResponse>,
 

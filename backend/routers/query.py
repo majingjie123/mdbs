@@ -28,14 +28,15 @@ def execute_sql(
     try:
         conn_data = _get_conn_data(req.conn_id, storage)
         schema = req.schema_name if conn_data.get("db_type") == "PostgreSQL" else None
-        cols, rows, affected, is_query, truncated = ops.execute_sql(
+        cols, rows, affected, is_query, total_count = ops.execute_sql(
             conn_data,
             req.sql,
             database=req.database,
             params=req.params,
             schema=schema,
             cancel_event=cancel,
-            limit=req.limit,
+            page=req.page,
+            page_size=req.page_size,
         )
         return {
             "success": True,
@@ -44,7 +45,7 @@ def execute_sql(
                 "rows": rows,
                 "affected": affected,
                 "is_query": is_query,
-                "truncated": truncated,
+                "total_count": total_count,
             },
         }
     except Exception as e:

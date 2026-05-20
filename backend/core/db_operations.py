@@ -1,18 +1,58 @@
 import pymysql
+import threading
 import re
 import os
+import time
+import hashlib
 from core.ssh_manager import SSHTunnelManager
 
 class DBOperations:
     def __init__(self):
         self.ssh_manager = SSHTunnelManager()
+        # 连接缓存：key=(conn_id, database) -> (connection, timestamp)
+        self._conn_cache: dict[str, tuple] = {}
+        self._cache_lock = threading.Lock()
+        # COUNT 缓存：避免翻页时重复 COUNT
+        self._count_cache: dict[str, tuple] = {}  # key -> (total_count, expiry)
 
     def get_connection(self, conn_data, database=None):
         """获取数据库连接，支持 MySQL 和 PostgreSQL"""
+        return self._get_or_create_connection(conn_data, database)
+
+    def _cache_key(self, conn_data, database=None):
+        return f"{conn_data.get('id')}_{database or conn_data.get('database')}"
+
+    def _get_or_create_connection(self, conn_data, database=None, use_cache=False):
+        """获取连接：若 use_cache=True 且缓存中有可用连接则复用，否则新建"""
         db_type = conn_data.get('db_type', 'MySQL')
         host = conn_data['host']
         port = int(conn_data['port'])
         db_name = database or conn_data.get('database')
+
+        # ── 缓存命中 ──
+        if use_cache:
+            key = self._cache_key(conn_data, database)
+            with self._cache_lock:
+                entry = self._conn_cache.get(key)
+                if entry:
+                    conn, ts = entry
+                    # 5 分钟 TTL，避免连接被服务端断开
+                    if time.time() - ts < 300:
+                        try:
+                            # MySQL: ping 快速验证连接存活
+                            if db_type == "MySQL":
+                                conn.ping(reconnect=False)
+                            else:
+                                # PostgreSQL: 轻量查询验证
+                                conn.run("SELECT 1")
+                            return conn
+                        except Exception:
+                            try: conn.close()
+                            except: pass
+                    else:
+                        del self._conn_cache[key]
+                        try: conn.close()
+                        except: pass
         
         if conn_data.get('ssh_enabled'):
             tunnel_host, tunnel_port = self.ssh_manager.start_tunnel(conn_data)
@@ -41,6 +81,23 @@ class DBOperations:
                 return conn
         except Exception as e:
             raise Exception(f"数据库连接失败 ({db_type}): {str(e)}")
+
+    def _return_to_cache(self, key, conn):
+        """将连接放回缓存（若连接已关闭则不缓存）"""
+        if conn is None:
+            return
+        try:
+            if hasattr(conn, 'ping'):
+                conn.ping(reconnect=False)
+            elif hasattr(conn, 'run'):
+                conn.run("SELECT 1")
+            else:
+                return  # 不认识的连接类型，不缓存
+            with self._cache_lock:
+                self._conn_cache[key] = (conn, time.time())
+        except Exception:
+            try: conn.close()
+            except: pass
 
     def disconnect(self, conn_data_or_id):
         """断开连接，释放隧道资源。接受 conn_id int 或 conn_data dict。"""
@@ -898,112 +955,197 @@ class DBOperations:
         _flush()
         return result
 
-    def execute_sql(self, conn_data, sql, database=None, params=None, cancel_event=None, schema=None, progress_callback=None, limit=0):
-        """执行任意 SQL 并返回 (columns, rows, affected_count, is_query, truncated)"""
+    @staticmethod
+    def _is_single_statement(sql: str) -> bool:
+        """快速判断是否为单条语句（不含分号），避免拆分解析"""
+        in_string = False
+        quote_char = None
+        for i, char in enumerate(sql):
+            if char in ("'", '"', '`') and (i == 0 or sql[i-1] != '\\'):
+                if not in_string:
+                    in_string = True
+                    quote_char = char
+                elif char == quote_char:
+                    in_string = False
+                    quote_char = None
+            elif char == ';' and not in_string:
+                return False
+        return True
+
+    @staticmethod
+    def _is_readonly_stmt(sql: str) -> bool:
+        """判断 SQL 是否为只读语句（无需事务）"""
+        return bool(re.match(r'\s*(SELECT|WITH|SHOW|DESC|EXPLAIN|DESCRIBE)\b', sql, re.IGNORECASE))
+
+    def execute_sql(self, conn_data, sql, database=None, params=None, cancel_event=None, schema=None, progress_callback=None, page=1, page_size=0):
+        """执行任意 SQL 并返回 (columns, rows, affected_count, is_query, total_count)
+        当 page_size>0 时启用服务端分页，仅对最后一条 SELECT 语句生效。
+        """
         if cancel_event and cancel_event.is_set():
             raise Exception("操作已取消")
 
-        # 预处理：拆分多条语句
-        statements = self.split_sql_statements(sql, progress_callback=progress_callback)
-        if not statements:
-            return [], [], 0, False
-            
         db_type = conn_data.get('db_type', 'MySQL')
-        conn = self.get_connection(conn_data, database=database)
+
+        # ── 单语句快速路径（避免 split_sql_statements + _batch_inserts 开销）──
+        if self._is_single_statement(sql):
+            statements = [sql.strip()]
+            total_stmts = 1
+        else:
+            statements = self.split_sql_statements(sql, progress_callback=progress_callback)
+            if not statements:
+                return [], [], 0, False, 0
+            total_stmts = len(statements)
+            if db_type == "MySQL":
+                statements = self._batch_inserts(statements)
+                total_stmts = len(statements)
+
+        # ── 只读检测：全部为只读时不开启事务 ──
+        all_readonly = all(self._is_readonly_stmt(s) for s in statements)
+
+        # ── COUNT 缓存 key（翻页时避免重复 COUNT）──
+        count_cache_key = None
+        if page_size > 0:
+            count_cache_key = hashlib.md5(
+                f"{conn_data.get('id')}_{database}_{schema}_{sql}".encode()
+            ).hexdigest()
+            # page=1 时总是刷新缓存；page>1 时尝试读取缓存
+            if page > 1:
+                with self._cache_lock:
+                    cached = self._count_cache.get(count_cache_key)
+                    if cached and time.time() - cached[1] < 30:
+                        total_count = cached[0]
+
+        # ── 获取连接（启用缓存）──
+        cache_key = self._cache_key(conn_data, database)
+        conn = self._get_or_create_connection(conn_data, database=database, use_cache=True)
         try:
             # PostgreSQL: 在执行前设置 search_path
             if db_type != "MySQL" and schema:
                 conn.run(f'SET search_path TO "{schema}"')
-            
+
             total_affected = 0
             last_query_res = None
-            total_stmts = len(statements)
-            
+
             if db_type == "MySQL":
                 with conn.cursor() as cursor:
                     try:
-                        # 开启显式事务以提升大批量写入性能
-                        cursor.execute("SET autocommit=0")
-                        
-                        # 极致动态步长：总数的 0.5%，范围锁定在 100 ~ 5000 之间
+                        if not all_readonly:
+                            cursor.execute("SET autocommit=0")
+
                         update_step = max(100, min(5000, total_stmts // 200))
 
-                        # 合并连续同表 INSERT 为批量多行 VALUES，大幅减少 MySQL 网络往返
-                        statements = self._batch_inserts(statements)
-                        total_stmts = len(statements)
-                        
                         for i, stmt in enumerate(statements):
                             if cancel_event and cancel_event.is_set():
                                 raise Exception(f"批处理执行到第 {i+1} 条语句时被取消")
-                            
+
                             if progress_callback and (i % update_step == 0 or i == total_stmts - 1):
                                 pct = int(((i+1) / total_stmts) * 100)
                                 progress_callback(pct, f"正在执行第 {i+1}/{total_stmts} 条语句...")
 
-                            cursor.execute(stmt, params)
-                            
-                            # 捕获查询结果 (针对 SELECT 等)
+                            is_last_select = (i == total_stmts - 1 and page_size > 0 and self._is_readonly_stmt(stmt))
+
+                            if is_last_select:
+                                need_count = page == 1 or 'total_count' not in dir() or not count_cache_key
+                                if need_count:
+                                    cursor.execute(f"SELECT COUNT(*) FROM ({stmt}) AS _cnt")
+                                    total_count = cursor.fetchone()[0]
+                                    # 写入 COUNT 缓存
+                                    if count_cache_key:
+                                        with self._cache_lock:
+                                            self._count_cache[count_cache_key] = (total_count, time.time())
+                                offset = (page - 1) * page_size
+                                cursor.execute(f"SELECT * FROM ({stmt}) AS _paged_ LIMIT %s OFFSET %s", (page_size, offset))
+                                raw_rows = cursor.fetchall()
+                            else:
+                                cursor.execute(stmt, params)
+                                raw_rows = cursor.fetchall() if cursor.description else None
+
                             if cursor.description:
                                 columns = [col[0] for col in cursor.description]
-                                raw_rows = cursor.fetchall()
-                                # DictCursor 返回 dict_rows，转换为 list_rows 以匹配 API 契约
                                 if raw_rows and isinstance(raw_rows[0], dict):
                                     rows = [[row.get(col) for col in columns] for row in raw_rows]
                                 else:
-                                    rows = raw_rows
-                                truncated = False
-                                if limit > 0 and len(rows) > limit:
-                                    rows = rows[:limit]
-                                    truncated = True
-                                last_query_res = (columns, rows, len(rows), True, truncated)
+                                    rows = raw_rows or []
+                                if is_last_select:
+                                    last_query_res = (columns, rows, len(rows), True, total_count)
+                                else:
+                                    last_query_res = (columns, rows, len(rows), True, len(rows))
                             else:
                                 total_affected += cursor.rowcount
-                        
-                        conn.commit()
+
+                        if not all_readonly:
+                            conn.commit()
                     except Exception:
-                        conn.rollback()
+                        if not all_readonly:
+                            conn.rollback()
                         raise
                     finally:
-                        cursor.execute("SET autocommit=1")
-                    
+                        if not all_readonly:
+                            cursor.execute("SET autocommit=1")
+
                     if last_query_res:
                         return last_query_res
-                    return ([], [], total_affected, False, False)
+                    return ([], [], total_affected, False, 0)
             else:
                 # PostgreSQL (pg8000.native)
                 try:
-                    conn.run("BEGIN")
-                    # 同步极致动态步长逻辑
+                    if not all_readonly:
+                        conn.run("BEGIN")
+
                     update_step = max(100, min(5000, total_stmts // 200))
-                    
+
                     for i, stmt in enumerate(statements):
                         if cancel_event and cancel_event.is_set():
                             raise Exception(f"批处理执行到第 {i+1} 条语句时被取消")
-                        
+
                         if progress_callback and (i % update_step == 0 or i == total_stmts - 1):
                             pct = int(((i+1) / total_stmts) * 100)
                             progress_callback(pct, f"正在执行第 {i+1}/{total_stmts} 条语句...")
 
-                        if params:
-                            if isinstance(params, dict):
-                                rows = conn.run(stmt, **params)
-                            else:
-                                rows = conn.run(stmt, *params)
+                        is_last_select = (i == total_stmts - 1 and page_size > 0 and self._is_readonly_stmt(stmt))
+
+                        if is_last_select:
+                            need_count = page == 1 or 'total_count' not in dir() or not count_cache_key
+                            if need_count:
+                                count_sql = f"SELECT COUNT(*) FROM ({stmt}) AS _cnt"
+                                rows_count = conn.run(count_sql)
+                                total_count = rows_count[0][0] if rows_count else 0
+                                if count_cache_key:
+                                    with self._cache_lock:
+                                        self._count_cache[count_cache_key] = (total_count, time.time())
+                            offset = (page - 1) * page_size
+                            paged_sql = f"SELECT * FROM ({stmt}) AS _paged_ LIMIT {page_size} OFFSET {offset}"
+                            rows = conn.run(paged_sql)
                         else:
-                            rows = conn.run(stmt)
-                        
+                            if params:
+                                if isinstance(params, dict):
+                                    rows = conn.run(stmt, **params)
+                                else:
+                                    rows = conn.run(stmt, *params)
+                            else:
+                                rows = conn.run(stmt)
+
                         if hasattr(conn, 'columns') and conn.columns:
                             columns = [col['name'] for col in conn.columns]
-                    conn.run("COMMIT")
-                    
+                            if rows and isinstance(rows[0], dict):
+                                rows = [[row.get(col) for col in columns] for row in rows]
+                            if is_last_select:
+                                last_query_res = (columns, rows, len(rows), True, total_count)
+                            else:
+                                last_query_res = (columns, rows, len(rows), True, len(rows))
+
+                    if not all_readonly:
+                        conn.run("COMMIT")
+
                     if last_query_res:
                         return last_query_res
-                    return ([], [], total_affected, False, False)
+                    return ([], [], total_affected, False, 0)
                 except Exception:
-                    conn.run("ROLLBACK")
+                    if not all_readonly:
+                        conn.run("ROLLBACK")
                     raise
         finally:
-            if hasattr(conn, 'close'): conn.close()
+            self._return_to_cache(cache_key, conn)
 
     def execute_batch_sql(self, conn_data, sql_list, database=None, cancel_event=None, schema=None):
         """

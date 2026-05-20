@@ -824,6 +824,9 @@ function getMenuItems(nodeType: string = '') {
 
 // 点击文档关闭右键菜单
 function onDocClick() { closeCtxMenu() }
+// connections 变更时自动刷新树（新增/编辑/删除连接后即时可见）
+watch(() => store.connections, () => { refreshConnections() }, { deep: true })
+
 onMounted(() => { document.addEventListener('click', onDocClick); refreshConnections() })
 onUnmounted(() => document.removeEventListener('click', onDocClick))
 </script>

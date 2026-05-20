@@ -45,7 +45,7 @@
             <div class="toolbar-actions">
               <n-button size="tiny" type="primary" :loading="running" @click="runQuery">▶ 执行</n-button>
               <n-button size="tiny" quaternary @click="clearResult" :disabled="!result">清空</n-button>
-              <span v-if="result && allRows.length" style="color:var(--color-text-muted);font-size:12px;margin-left:4px">{{ totalRows }} 行{{ queryTime ? ` (${queryTime}ms)` : '' }}</span>
+              <span v-if="result && allRows.length" style="color:var(--color-text-muted);font-size:12px;margin-left:4px">{{ displayTotal }} 行{{ queryTime ? ` (${queryTime}ms)` : '' }}</span>
             </div>
           </div>
           <div class="result-body">
@@ -57,12 +57,13 @@
                 <div class="result-table-wrap">
                   <n-data-table
                     :columns="tableColumns"
-                    :data="displayRows"
+                    :data="mappedRows"
                     :max-height="'100%'"
                     :bordered="true"
-                    :single-line="false"
-                    size="small"
-                    striped
+                    single-line
+                    virtual-scroll
+                    :row-height="28"
+                    :row-key="(row: Record<string, any>, idx: number) => (page - 1) * pageSize + idx"
                   />
                 </div>
                 <div class="result-pagination" v-if="totalPages > 1">
@@ -234,7 +235,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, nextTick, computed, onUnmounted } from 'vue'
+import { ref, onMounted, nextTick, computed, watch, onUnmounted } from 'vue'
 import { useMessage, useDialog } from 'naive-ui'
 import { api, ExecResult } from '../api'
 import { useAppStore } from '../stores/app'
@@ -309,20 +310,45 @@ onUnmounted(() => {
 
 // ── SQL 执行 ──
 const page = ref(1)
-const pageSize = ref(100)
+const pageSize = ref(1000)
 const allRows = ref<any[][]>([])
 const displayRows = computed(() => {
-  const start = (page.value - 1) * pageSize.value
-  return allRows.value.slice(start, start + pageSize.value)
+  // 服务端分页：allRows 就是当前页数据
+  return allRows.value
 })
-const totalPages = computed(() => Math.max(1, Math.ceil(allRows.value.length / pageSize.value)))
-const totalRows = computed(() => allRows.value.length)
+// 将二维数组转为对象数组
+const mappedRows = computed(() => {
+  const cols = result.value?.columns
+  if (!cols) return []
+  const rows = allRows.value
+  const out: Record<string, any>[] = new Array(rows.length)
+  for (let ri = 0; ri < rows.length; ri++) {
+    const row = rows[ri]
+    const obj: Record<string, any> = {}
+    for (let ci = 0; ci < cols.length; ci++) {
+      obj[cols[ci]] = row[ci]
+    }
+    out[ri] = obj
+  }
+  return out
+})
+const totalPages = computed(() => Math.max(1, Math.ceil((result.value?.total_count || 0) / pageSize.value)))
+const totalRows = computed(() => result.value?.total_count || allRows.value.length)
+const displayTotal = computed(() => {
+  return `${result.value?.total_count || allRows.value.length}`
+})
+
+watch([page, pageSize], () => {
+  if (result.value) {
+    runQuery()
+  }
+})
 
 const tableColumns = computed(() => {
   if (!result.value?.columns) return []
   return result.value.columns.map((col: string) => ({
-    title: col, key: col, width: 160, resizable: true,
-    ellipsis: { tooltip: true },
+    title: col, key: col, width: 160,
+    ellipsis: true,
     render: (row: any) => {
       const v = row[col]; return v === null || v === undefined ? '<span style="color:var(--color-text-muted)">NULL</span>' : String(v)
     }
@@ -335,17 +361,17 @@ async function runQuery() {
   const startTime = performance.now()
   abortController.value = new AbortController()
   try {
-    const r: any = await api.executeSQL(props.connId, sqlText.value, props.db || props.dbName || undefined, props.schemaName || undefined, abortController.value.signal)
+    const r: any = await api.executeSQL(props.connId, sqlText.value, props.db || props.dbName || undefined, props.schemaName || undefined, abortController.value.signal, page.value, pageSize.value)
     queryTime.value = Math.round(performance.now() - startTime)
     if (r.success && r.data) {
       result.value = r.data
       allRows.value = r.data.rows || []
     } else {
-      result.value = { columns: [], rows: [], is_query: false, affected: 0, error: r.message || '执行失败' }
+      result.value = { columns: [], rows: [], is_query: false, affected: 0, total_count: 0, error: r.message || '执行失败' }
     }
   } catch (e: any) {
     queryTime.value = Math.round(performance.now() - startTime)
-    result.value = { columns: [], rows: [], is_query: false, affected: 0, error: e.message || '请求失败' }
+    result.value = { columns: [], rows: [], is_query: false, affected: 0, total_count: 0, error: e.message || '请求失败' }
   } finally { running.value = false; abortController.value = null }
 }
 
