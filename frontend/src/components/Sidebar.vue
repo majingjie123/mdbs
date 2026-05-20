@@ -35,6 +35,13 @@ const tableCache = ref<Map<string, any[]>>(new Map())
 // 搜索
 const searchQuery = ref('')
 
+// 自定义过滤：只匹配表节点（leaf table），不匹配数据库名/文件夹名
+function tableFilter(node: any, pattern: string) {
+  if (!pattern) return true
+  if (node.nodeType !== 'table') return false
+  return node.label.toLowerCase().includes(pattern.toLowerCase())
+}
+
 // 侧栏折叠
 const collapsed = ref(false)
 
@@ -826,13 +833,14 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
         :data="treeData as any"
         :default-expanded-keys="expandedKeys"
         :selected-keys="selectedKey ? [selectedKey] : []"
+        :filter="tableFilter"
         :pattern="searchQuery"
         block-line
         :virtual-scroll="false"
         @update:selected-keys="onSelect"
         @update:expanded-keys="onUpdateExpandedKeys"
         :node-props="handleNodeProps"
-        style="flex: 1; overflow-y: auto; padding: 2px 4px"
+        style="flex: 1; padding: 2px 4px"
       />
     </div>
 
@@ -959,7 +967,8 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
 .tree-container {
   flex: 1;
   display: flex;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
   min-height: 0;
 }
 
