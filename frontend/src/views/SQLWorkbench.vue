@@ -535,7 +535,17 @@ async function doSaveQuery(overwrite?: boolean) {
 </script>
 
 <template>
-  <div class="workbench" :class="{ dragging: isDragging }">
+  <div class="workbench" :class="{ dragging: isDragging, 'with-ai': showAiAssistant }">
+    <!-- AI 助手侧边栏 -->
+    <div v-if="showAiAssistant" class="ai-sidebar">
+      <AIAssistantPanel
+        :conn-id="props.connId"
+        :db-name="props.dbName"
+        :schema-name="props.schemaName"
+      />
+    </div>
+    <!-- 主区域：SQL 编辑器 + 结果 -->
+    <div class="main-area">
     <!-- SQL 编辑器 -->
     <div class="editor-panel" :style="{ height: splitRatio + '%' }">
       <div class="editor-toolbar">
@@ -592,19 +602,12 @@ async function doSaveQuery(overwrite?: boolean) {
       </div>
 
       <div class="editor-body">
-        <div class="editor-sql-area" :class="{ 'with-ai': showAiAssistant }">
+        <div class="editor-sql-area">
           <SqlEditor
             v-model:modelValue="sqlText"
             :connId="props.connId"
             :dbName="props.dbName"
             @execute="runQuery"
-          />
-        </div>
-        <div v-if="showAiAssistant" class="editor-ai-panel">
-          <AIAssistantPanel
-            :conn-id="props.connId"
-            :db-name="props.dbName"
-            :schema-name="props.schemaName"
           />
         </div>
       </div>
@@ -743,6 +746,7 @@ async function doSaveQuery(overwrite?: boolean) {
         </n-space>
       </template>
     </n-modal>
+    </div><!-- /.main-area -->
   </div>
 </template>
 
@@ -754,8 +758,37 @@ async function doSaveQuery(overwrite?: boolean) {
   padding: 12px;
   gap: 6px;
 }
+.workbench.with-ai {
+  flex-direction: row;
+}
 .workbench.dragging { user-select: none; cursor: row-resize; }
 .workbench.dragging .table-wrapper { pointer-events: none; }
+
+/* AI 助手侧边栏 */
+.ai-sidebar {
+  width: 320px;
+  min-width: 280px;
+  max-width: 400px;
+  border-right: 1px solid var(--color-border, #333);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: aiSlideIn 0.2s ease;
+}
+@keyframes aiSlideIn {
+  from { width: 0; min-width: 0; opacity: 0; }
+  to { width: 320px; min-width: 280px; opacity: 1; }
+}
+
+/* 主区域（编辑器 + 结果） */
+.main-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+}
 
 .editor-panel {
   display: flex;
@@ -777,20 +810,6 @@ async function doSaveQuery(overwrite?: boolean) {
   flex: 1;
   min-width: 0;
   overflow: hidden;
-}
-
-.editor-sql-area.with-ai {
-  width: 60%;
-  flex: none;
-}
-
-.editor-ai-panel {
-  width: 40%;
-  min-width: 280px;
-  max-width: 420px;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
 }
 
 .editor-toolbar {

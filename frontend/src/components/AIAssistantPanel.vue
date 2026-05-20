@@ -19,7 +19,7 @@
     </div>
 
     <!-- 消息区 -->
-    <div ref="msgArea" class="ai-msgs" @scroll="onScrollMsg">
+    <div ref="msgArea" class="ai-msgs" @scroll="onScrollMsg" @click="onMsgClick">
       <div v-if="!messages.length" class="ai-welcome">
         <div class="ai-welcome-title">AI 助手</div>
         <p v-if="!connId">选择 AI 配置 &rarr; 选择连接 &rarr; 开始对话</p>
@@ -250,6 +250,17 @@ function copyMsg(content: string) {
   navigator.clipboard.writeText(content).then(() => msg.success('已复制')).catch(() => msg.error('复制失败'))
 }
 
+function onMsgClick(e: MouseEvent) {
+  const target = e.target as HTMLElement
+  const btn = target.closest('.code-copy-btn') as HTMLElement | null
+  if (btn && btn.dataset.copyCode) {
+    navigator.clipboard.writeText(btn.dataset.copyCode).then(() => {
+      btn.textContent = '✓'
+      setTimeout(() => { btn.textContent = '📋' }, 1500)
+    }).catch(() => msg.error('复制失败'))
+  }
+}
+
 function delMsg(idx: number) {
   messages.value.splice(idx, 1)
 }
@@ -385,7 +396,8 @@ function renderMD(text: string): string {
   let html = escapeHTML(text)
   html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => {
     const trimmed = code.trim()
-    return `<div class="code-wrap"><span class="code-lang">${lang||'code'}</span><pre class="code-block"><code>${escapeHTML(trimmed)}</code></pre></div>`
+    const escaped = escapeHTML(trimmed)
+    return `<div class="code-wrap"><span class="code-lang">${lang||'code'}</span><button class="code-copy-btn" data-copy-code="${escaped}" title="复制代码">📋</button><pre class="code-block"><code>${escaped}</code></pre></div>`
   })
   html = html.replace(/^---+\s*$/gm, '<hr/>')
   html = html.replace(/^&gt;\s?(.+)$/gm, '<blockquote>$1</blockquote>')
@@ -636,5 +648,26 @@ onMounted(() => {
 }
 .send-btn.streaming:hover {
   background: rgba(231,76,60,0.15);
+}
+
+.ai-msg-text :deep(.code-copy-btn) {
+  position: absolute;
+  top: 2px;
+  right: 4px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 11px;
+  padding: 2px 4px;
+  color: #888;
+  border-radius: 3px;
+  line-height: 1;
+}
+.ai-msg-text :deep(.code-copy-btn:hover) {
+  background: rgba(255,255,255,0.1);
+  color: #ddd;
+}
+.ai-msg-text :deep(.code-wrap) {
+  position: relative;
 }
 </style>
