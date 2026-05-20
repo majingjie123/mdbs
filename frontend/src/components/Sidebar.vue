@@ -840,7 +840,7 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
         @update:selected-keys="onSelect"
         @update:expanded-keys="onUpdateExpandedKeys"
         :node-props="handleNodeProps"
-        style="flex: 1; padding: 2px 4px"
+        style="height: 100%; overflow: auto; padding: 2px 4px"
       />
     </div>
 
@@ -892,6 +892,7 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
 .sidebar {
   width: 260px;
   min-width: 260px;
+  height: 100%;
   background: var(--bg-sidebar);
   display: flex;
   flex-direction: column;
@@ -966,7 +967,7 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
 
 .tree-container {
   flex: 1;
-  display: flex;
+  display: block;
   overflow-y: auto;
   overflow-x: hidden;
   min-height: 0;
