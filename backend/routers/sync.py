@@ -7,8 +7,8 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from ..dependencies import get_db_storage
-from ..schemas import SyncRequest
+from dependencies import get_db_storage
+from schemas import SyncRequest
 from core.syncer import DatabaseSyncer
 from models.db_storage import DBStorage
 from models.sync_history import SyncHistoryManager

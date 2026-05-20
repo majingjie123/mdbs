@@ -7,8 +7,8 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from fastapi.responses import JSONResponse
 
-from ..dependencies import get_db_storage, get_db_ops
-from ..schemas import ImportExecuteRequest, MessageResponse
+from dependencies import get_db_storage, get_db_ops
+from schemas import ImportExecuteRequest, MessageResponse
 from core.db_operations import DBOperations
 from models.db_storage import DBStorage
 from core.importer import Importer

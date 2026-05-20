@@ -1,8 +1,8 @@
 """表结构查询 API"""
 
 from fastapi import APIRouter, Depends, HTTPException
-from ..dependencies import get_db_storage, get_db_ops
-from ..schemas import (
+from dependencies import get_db_storage, get_db_ops
+from schemas import (
     MessageResponse,
     CreateTableParams,
     AlterColumnParams,

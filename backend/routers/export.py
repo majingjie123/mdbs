@@ -9,8 +9,8 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 
-from ..dependencies import get_db_storage, get_db_ops
-from ..schemas import (
+from dependencies import get_db_storage, get_db_ops
+from schemas import (
     ExportStructureRequest,
     ExportERRequest,
     ExportNavicatRequest,

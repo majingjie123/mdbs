@@ -1,8 +1,8 @@
 """保存的查询 CRUD API"""
 
 from fastapi import APIRouter, Depends
-from ..dependencies import get_db_storage
-from ..schemas import SavedQueryCreate, SavedQueryUpdate, SavedQueryResponse
+from dependencies import get_db_storage
+from schemas import SavedQueryCreate, SavedQueryUpdate, SavedQueryResponse
 from models.db_storage import DBStorage
 
 router = APIRouter(prefix="/api/queries", tags=["保存的查询"])

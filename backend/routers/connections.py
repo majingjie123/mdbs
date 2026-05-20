@@ -1,8 +1,8 @@
 """连接管理 API"""
 
 from fastapi import APIRouter, Depends
-from ..dependencies import get_db_storage, get_db_ops
-from ..schemas import ConnData, ConnectionCreate, ConnectionUpdate, MessageResponse
+from dependencies import get_db_storage, get_db_ops
+from schemas import ConnData, ConnectionCreate, ConnectionUpdate, MessageResponse
 from models.db_storage import DBStorage
 from core.db_operations import DBOperations
 from core.ssh_manager import SSHTunnelManager

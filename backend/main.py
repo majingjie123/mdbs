@@ -4,7 +4,7 @@
     python -m uvicorn backend.main:app --host 127.0.0.1 --port 18081 --reload
 
 生产部署 (打包后):
-    run_backend.py  (自动加载同目录下的 frontend/dist 静态文件)
+    server_entry.py  (由 PyInstaller 打包，自动加载同目录下的 frontend/dist 静态文件)
 """
 
 import sys
@@ -15,15 +15,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
-# core / models / utils 现在位于 backend/ 下
-BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
-if BACKEND_DIR not in sys.path:
-    sys.path.insert(0, BACKEND_DIR)
-
-from .routers import connections, databases, tables, query, backup, export, import_routes  # type: ignore[import-not-found]
-from .routers import sync as sync_router  # type: ignore[import-not-found]
-from .routers import ai as ai_router  # type: ignore[import-not-found]
-from .routers import queries as queries_router  # type: ignore[import-not-found]
+from routers import connections, databases, tables, query, backup, export, import_routes  # type: ignore[import-not-found]
+from routers import sync as sync_router  # type: ignore[import-not-found]
+from routers import ai as ai_router  # type: ignore[import-not-found]
+from routers import queries as queries_router  # type: ignore[import-not-found]
 
 app = FastAPI(
     title="MDBS",

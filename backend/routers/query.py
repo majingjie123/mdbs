@@ -2,8 +2,8 @@
 
 import threading
 from fastapi import APIRouter, Depends
-from ..dependencies import get_db_storage, get_db_ops
-from ..schemas import ExecuteSQLRequest, BatchSQLRequest, MessageResponse
+from dependencies import get_db_storage, get_db_ops
+from schemas import ExecuteSQLRequest, BatchSQLRequest, MessageResponse
 from core.db_operations import DBOperations
 from models.db_storage import DBStorage
 
