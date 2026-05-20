@@ -898,11 +898,11 @@ class DBOperations:
         _flush()
         return result
 
-    def execute_sql(self, conn_data, sql, database=None, params=None, cancel_event=None, schema=None, progress_callback=None):
-        """执行任意 SQL 并返回 (columns, rows, affected_count, is_query)"""
+    def execute_sql(self, conn_data, sql, database=None, params=None, cancel_event=None, schema=None, progress_callback=None, limit=0):
+        """执行任意 SQL 并返回 (columns, rows, affected_count, is_query, truncated)"""
         if cancel_event and cancel_event.is_set():
             raise Exception("操作已取消")
-            
+
         # 预处理：拆分多条语句
         statements = self.split_sql_statements(sql, progress_callback=progress_callback)
         if not statements:
@@ -951,7 +951,11 @@ class DBOperations:
                                     rows = [[row.get(col) for col in columns] for row in raw_rows]
                                 else:
                                     rows = raw_rows
-                                last_query_res = (columns, rows, len(rows), True)
+                                truncated = False
+                                if limit > 0 and len(rows) > limit:
+                                    rows = rows[:limit]
+                                    truncated = True
+                                last_query_res = (columns, rows, len(rows), True, truncated)
                             else:
                                 total_affected += cursor.rowcount
                         
@@ -964,7 +968,7 @@ class DBOperations:
                     
                     if last_query_res:
                         return last_query_res
-                    return ([], [], total_affected, False)
+                    return ([], [], total_affected, False, False)
             else:
                 # PostgreSQL (pg8000.native)
                 try:
@@ -990,15 +994,11 @@ class DBOperations:
                         
                         if hasattr(conn, 'columns') and conn.columns:
                             columns = [col['name'] for col in conn.columns]
-                            last_query_res = (columns, rows, len(rows), True)
-                        else:
-                            affected = len(rows) if rows else 0
-                            total_affected += affected
                     conn.run("COMMIT")
                     
                     if last_query_res:
                         return last_query_res
-                    return ([], [], total_affected, False)
+                    return ([], [], total_affected, False, False)
                 except Exception:
                     conn.run("ROLLBACK")
                     raise

@@ -5,7 +5,6 @@ import { useAppStore } from '../stores/app'
 import { api } from '../api'
 import SyncDialog from './dialogs/SyncDialog.vue'
 import ImportDialog from './dialogs/ImportDialog.vue'
-import AISessionWizard from './dialogs/AISessionWizard.vue'
 
 const message = useMessage()
 const dialog = useDialog()
@@ -93,7 +92,6 @@ const showCreateDbDialog = ref(false)
 const createDbConnId = ref(0)
 const newDbName = ref('')
 const creatingDb = ref(false)
-const showAISessionWizard = ref(false)
 
 // ── 查询重命名 ──
 const showRenameDialog = ref(false)
@@ -824,10 +822,7 @@ function getMenuItems(nodeType: string = '') {
   }
 }
 
-// 点击文档关闭右键菜单 + AI 入口
-function openAIChat() {
-  store.openTab('ai-chat', 'AI 助手', {})
-}
+// 点击文档关闭右键菜单
 function onDocClick() { closeCtxMenu() }
 onMounted(() => { document.addEventListener('click', onDocClick); refreshConnections() })
 onUnmounted(() => document.removeEventListener('click', onDocClick))
@@ -839,12 +834,6 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
     <div class="sidebar-header">
       <span v-if="!collapsed" class="sidebar-title">数据库浏览器</span>
       <div class="sidebar-header-actions">
-        <button class="sidebar-icon-btn" @click="showAISessionWizard = true" title="AI 会话向导">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a4 4 0 0 1 4 4c0 2-2 4-4 4s-4-2-4-4a4 4 0 0 1 4-4z"/><path d="M12 14c-4 0-6 2-6 4v2h12v-2c0-2-2-4-6-4z"/><path d="M19 7l1 2 2 1-2 1-1 2-1-2-2-1 2-1z"/><path d="M5 16l-1 2-2 1 2 1 1 2 1-2 2-1-2-1z"/></svg>
-        </button>
-        <button class="sidebar-icon-btn" @click="openAIChat" title="AI 助手">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
-        </button>
         <button class="toggle-btn" @click="collapsed = !collapsed" :title="collapsed ? '展开' : '折叠'">
           {{ collapsed ? '▶' : '◀' }}
         </button>
@@ -868,9 +857,6 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
         style="height: 100%; overflow: auto; padding: 2px 4px"
       />
     </div>
-
-    <!-- AI 会话向导对话框 -->
-    <AISessionWizard v-model:show="showAISessionWizard" />
 
     <!-- 创建数据库对话框 -->
     <n-modal v-model:show="showCreateDbDialog" title="创建数据库" preset="card" style="width: 400px">

@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
 import { Codemirror } from 'vue-codemirror'
-import { EditorView, keymap } from '@codemirror/view'
-import { EditorState } from '@codemirror/state'
+import { keymap } from '@codemirror/view'
 import { sql, MySQL } from '@codemirror/lang-sql'
 import { oneDark } from '@codemirror/theme-one-dark'
 import { autocompletion, CompletionContext } from '@codemirror/autocomplete'
@@ -110,7 +109,6 @@ function sqlCompletions(context: CompletionContext) {
 const extensions = [
   sql({ dialect: MySQL }),
   oneDark,
-  EditorView.lineWrapping,
   autocompletion({ override: [sqlCompletions] }),
   keymap.of([
     { key: 'Mod-Enter', run: () => { emit('execute'); return true } },

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, h, onMounted, onUnmounted } from 'vue'
+import { ref, computed, h, shallowRef, markRaw, nextTick, onMounted, onUnmounted } from 'vue'
 import { api, ExecResult } from '../api'
 import { useMessage } from 'naive-ui'
 import SqlEditor from '../components/SqlEditor.vue'
@@ -101,11 +101,11 @@ function clearHistory() {
 
 onMounted(loadHistory)
 
-// 分页
+// ── 分页 ──
 const page = ref(1)
 const pageSize = ref(100)
 
-const allRows = ref<any[][]>([])
+const allRows = shallowRef<any[][]>([])
 const displayRows = computed(() => {
   const start = (page.value - 1) * pageSize.value
   return allRows.value.slice(start, start + pageSize.value)
@@ -113,47 +113,116 @@ const displayRows = computed(() => {
 const totalPages = computed(() => Math.max(1, Math.ceil(allRows.value.length / pageSize.value)))
 const totalRows = computed(() => allRows.value.length)
 
+// 将二维数组转为对象数组（缓存，仅 displayRows 或 columns 变化时重算）
+const mappedRows = computed(() => {
+  const cols = result.value?.columns
+  if (!cols) return []
+  const rows = displayRows.value
+  const out: Record<string, any>[] = new Array(rows.length)
+  for (let ri = 0; ri < rows.length; ri++) {
+    const row = rows[ri]
+    const obj: Record<string, any> = {}
+    for (let ci = 0; ci < cols.length; ci++) {
+      obj[cols[ci]] = row[ci]
+    }
+    out[ri] = obj
+  }
+  return out
+})
+
+// 水平滚动按钮（带 debounce 避免频繁 reflow）
+const scrollContainerRef = ref<HTMLElement | null>(null)
+const canScrollLeft = ref(false)
+const canScrollRight = ref(false)
+let _scrollTimer: number | null = null
+function updateScrollButtons() {
+  if (_scrollTimer !== null) return // 已排队
+  _scrollTimer = window.requestAnimationFrame(() => {
+    _scrollTimer = null
+    const el = scrollContainerRef.value
+    if (!el) { canScrollLeft.value = false; canScrollRight.value = false; return }
+    canScrollLeft.value = el.scrollLeft > 4
+    canScrollRight.value = el.scrollLeft < el.scrollWidth - el.clientWidth - 4
+  })
+}
+function scrollLeftStep() {
+  const el = scrollContainerRef.value
+  if (!el) return
+  el.scrollBy({ left: -260, behavior: 'smooth' })
+  requestAnimationFrame(() => requestAnimationFrame(updateScrollButtons))
+}
+function scrollRightStep() {
+  const el = scrollContainerRef.value
+  if (!el) return
+  el.scrollBy({ left: 260, behavior: 'smooth' })
+  requestAnimationFrame(() => requestAnimationFrame(updateScrollButtons))
+}
+
 // 水平滚动：每列按 160px 计算总宽度
 const scrollX = computed(() => {
   if (!result.value?.columns) return 0
   return Math.max(result.value.columns.length * 160, 600)
 })
 
-// 编辑状态
-const editCell = ref<{ row: number; col: number } | null>(null)
-const editValue = ref('')
-const modifiedCells = ref<Map<string, string>>(new Map())
+// 结果集自适应高度：随窗口大小变化
+const tableMaxHeight = ref(500)
+function updateTableMaxHeight() {
+  const panel = document.querySelector('.result-panel') as HTMLElement | null
+  if (panel) {
+    // 留出工具栏(36px) + 底部栏(42px) + padding(8px)
+    const avail = panel.clientHeight - 86
+    tableMaxHeight.value = Math.max(200, avail)
+  }
+}
+onMounted(() => {
+  window.addEventListener('resize', updateTableMaxHeight)
+  // 首次渲染后计算
+  nextTick(updateTableMaxHeight)
+})
+onUnmounted(() => {
+  window.removeEventListener('resize', updateTableMaxHeight)
+})
+
+// 编辑状态（非响应式 stores + version 触发器，避免每个 cell render 创建海量 deps）
+let _editCell: { row: number; col: number } | null = null
+let _editValue = ''
+const _modifiedMap = new Map<string, string>()
+const _cellVersion = ref(0)  // 编辑/修改变化时 +1，所有 cell render 通过它创建单个 dep
+const modifiedCount = computed(() => _modifiedMap.size)
 const saving = ref(false)
 
-// 列定义 computed，避免每次渲染重建
+// 列定义 computed，仅 columns 变化时重建（不依赖 page/pageSize）
 const tableColumns = computed(() => {
   if (!result.value?.columns) return []
   const cols = result.value.columns
-  const ps = pageSize.value
-  const p = page.value
-  return cols.map((col, ci) => ({
+  const defs = cols.map((col, ci) => markRaw({
     title: col,
     key: col,
     width: 160,
     resizable: true,
     ellipsis: { tooltip: true },
     render: (row: any, ri: number) => {
+      // 用 _cellVersion 创建唯一 reactivity dep，读取非响应式 store 避免海量 deps
+      _cellVersion.value; // 只读一次，建立单个 dep
+      const p = page.value
+      const ps = pageSize.value
       const absRow = (p - 1) * ps + ri
       const cellKey = `${absRow}-${ci}`
-      const isEditing = editCell.value?.row === ri && editCell.value?.col === ci
-      const isModified = modifiedCells.value.has(cellKey)
+      const ec = _editCell
+      const isEditing = ec !== null && ec.row === ri && ec.col === ci
+      const isModified = _modifiedMap.has(cellKey)
       const rawVal = row[col]
-      const cellVal = modifiedCells.value.get(cellKey) ?? rawVal
+      const cellVal = _modifiedMap.get(cellKey) ?? rawVal
       const isNull = rawVal === null || rawVal === undefined
 
       if (isEditing) {
         return h('input', {
-          value: editValue.value,
-          onInput: (e: any) => { editValue.value = e.target.value },
+          value: _editValue,
+          onInput: (e: any) => { _editValue = e.target.value },
           onBlur: () => commitEdit(ri, ci),
           onKeydown: (e: any) => {
             if (e.key === 'Enter') commitEdit(ri, ci)
-            if (e.key === 'Escape') editCell.value = null
+            if (e.key === 'Escape') { _editCell = null; _cellVersion.value++ }
           },
           style: {
             width: '100%',
@@ -186,7 +255,8 @@ const tableColumns = computed(() => {
         title: isNull ? 'NULL' : (isModified ? `已修改: ${cellVal}` : String(cellVal)),
       }, isNull ? 'NULL' : String(cellVal))
     },
-  })) as any
+  }))
+  return defs
 })
 
 async function runQuery() {
@@ -215,8 +285,10 @@ async function runQuery() {
       result.value = res.data
       allRows.value = res.data.rows || []
       page.value = 1
-      modifiedCells.value.clear()
+      _modifiedMap.clear()
+      _cellVersion.value++
       addHistory(sqlText.value)
+      nextTick(() => updateScrollButtons())
     } else {
       error.value = res.message || '执行失败'
       result.value = null
@@ -277,30 +349,34 @@ function formatSql() {
 function startEdit(rowIdx: number, colIdx: number) {
   const row = allRows.value[(page.value - 1) * pageSize.value + rowIdx]
   if (!row) return
-  const cellKey = `${(page.value - 1) * pageSize.value + rowIdx}-${colIdx}`
-  editValue.value = String(modifiedCells.value.get(cellKey) ?? row[colIdx] ?? '')
-  editCell.value = { row: rowIdx, col: colIdx }
+  const absRow = (page.value - 1) * pageSize.value + rowIdx
+  const cellKey = `${absRow}-${colIdx}`
+  _editValue = String(_modifiedMap.get(cellKey) ?? row[colIdx] ?? '')
+  _editCell = { row: rowIdx, col: colIdx }
+  _cellVersion.value++
 }
 
 function commitEdit(rowIdx: number, colIdx: number) {
-  if (!editCell.value) return
+  if (!_editCell) return
   const absRow = (page.value - 1) * pageSize.value + rowIdx
   const cellKey = `${absRow}-${colIdx}`
   const row = allRows.value[absRow]
   const oldVal = row ? row[colIdx] : undefined
-  const newVal = editValue.value
+  const newVal = _editValue
   // 值没变 → 跳过
   if (oldVal === null && newVal === '') return
   if (oldVal !== null && String(oldVal) === newVal) return
   // 清空数字字段 → 跳过（避免 DOUBLE 列 1292 错误）
   if (typeof oldVal === 'number' && newVal === '') return
-  modifiedCells.value.set(cellKey, newVal)
-  editCell.value = null
+  _modifiedMap.set(cellKey, newVal)
+  _editCell = null
+  _cellVersion.value++
 }
 
 // ── 取消所有修改 ──
 function cancelEdits() {
-  modifiedCells.value.clear()
+  _modifiedMap.clear()
+  _cellVersion.value++
 }
 
 // ── 保存修改到数据库 ──
@@ -320,7 +396,7 @@ function guessTableName(sql: string): string | null {
 }
 
 async function saveEdits() {
-  if (modifiedCells.value.size === 0) return
+  if (_modifiedMap.size === 0) return
   if (!props.connId) {
     message.warning('连接不存在')
     return
@@ -341,7 +417,7 @@ async function saveEdits() {
 
   // 按行分组：cellKey = "absRow-colIdx"
   const rowMap = new Map<number, Map<number, string>>()
-  for (const [key, newVal] of modifiedCells.value) {
+  for (const [key, newVal] of _modifiedMap) {
     const [r, c] = key.split('-').map(Number)
     if (!rowMap.has(r)) rowMap.set(r, new Map())
     rowMap.get(r)!.set(c, newVal)
@@ -420,7 +496,8 @@ async function saveEdits() {
           }
         }
       }
-      modifiedCells.value.clear()
+      _modifiedMap.clear()
+      _cellVersion.value++
     } else {
       // 在错误消息中附带第一条 SQL 的参数信息，帮助定位脏数据
       const debug1 = sqls.length > 0
@@ -601,7 +678,7 @@ async function doSaveQuery(overwrite?: boolean) {
           <n-button size="tiny" type="primary" :loading="running" @click="runQuery">
             ▶ 执行
           </n-button>
-          <n-button v-if="running" size="tiny" type="error" @click="stopQuery">
+          <n-button v-show="running" size="tiny" type="error" @click="stopQuery">
             ⬛ 停止
           </n-button>
         </n-space>
@@ -653,16 +730,16 @@ async function doSaveQuery(overwrite?: boolean) {
         <n-space size="small">
           <n-tag v-if="queryTime > 0" size="tiny" type="info">{{ queryTime }}ms</n-tag>
           <n-button
-            v-if="modifiedCells.size > 0"
+            v-if="modifiedCount > 0"
             size="tiny"
             type="warning"
             :loading="saving"
             @click="saveEdits"
           >
-            💾 保存修改 ({{ modifiedCells.size }})
+            💾 保存修改 ({{ modifiedCount }})
           </n-button>
           <n-button
-            v-if="modifiedCells.size > 0"
+            v-if="modifiedCount > 0"
             size="tiny"
             @click="cancelEdits"
           >
@@ -678,22 +755,37 @@ async function doSaveQuery(overwrite?: boolean) {
         </n-space>
       </div>
 
-      <div class="table-wrapper">
-        <n-data-table
-          :scroll-x="scrollX"
-          single-line
-           :columns="tableColumns"
-          :data="displayRows.map((row, ri) => {
-            const obj: any = {}
-            result!.columns.forEach((col, ci) => { obj[col] = row[ci] })
-            return obj
-          })"
-          :bordered="true"
-          striped
-          :max-height="500"
-          virtual-scroll
-          :row-height="28"
-        />
+      <div class="table-scroll-wrapper">
+        <button
+          class="scroll-btn scroll-btn-left"
+          :class="{ visible: canScrollLeft }"
+          @click="scrollLeftStep"
+          title="向左滚动"
+        >‹</button>
+        <div
+          class="table-wrapper"
+          ref="scrollContainerRef"
+          @scroll="updateScrollButtons"
+        >
+          <n-data-table
+            :scroll-x="scrollX"
+            single-line
+            :columns="tableColumns"
+            :data="mappedRows"
+            :bordered="true"
+            striped
+            :max-height="tableMaxHeight"
+            virtual-scroll
+            :row-height="28"
+            :row-key="(row: Record<string, any>, idx: number) => (page - 1) * pageSize + idx"
+          />
+        </div>
+        <button
+          class="scroll-btn scroll-btn-right"
+          :class="{ visible: canScrollRight }"
+          @click="scrollRightStep"
+          title="向右滚动"
+        >›</button>
       </div>
 
       <!-- 底部分页栏 -->
@@ -726,7 +818,7 @@ async function doSaveQuery(overwrite?: boolean) {
           </span>
           <n-button size="tiny" :disabled="page >= totalPages" @click="page++">下一页</n-button>
         </n-space>
-        <span class="footer-info">{{ modifiedCells.size > 0 ? `已修改 ${modifiedCells.size} 个单元格` : '' }}</span>
+        <span class="footer-info">{{ modifiedCount > 0 ? `已修改 ${modifiedCount} 个单元格` : '' }}</span>
       </div>
     </div>
 
@@ -964,6 +1056,48 @@ async function doSaveQuery(overwrite?: boolean) {
   color: #888888;
   font-size: 12px;
 }
+
+/* ── 水平滚动按钮 ── */
+.table-scroll-wrapper {
+  flex: 1;
+  display: flex;
+  position: relative;
+  overflow: hidden;
+  min-height: 0;
+}
+.table-scroll-wrapper .table-wrapper {
+  flex: 1;
+  overflow: auto;
+}
+.scroll-btn {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 10;
+  width: 28px;
+  border: none;
+  background: rgba(30, 30, 30, 0.85);
+  color: #aaa;
+  font-size: 22px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.2s, background 0.15s;
+  pointer-events: none;
+  padding: 0;
+}
+.scroll-btn:hover {
+  background: rgba(60, 60, 60, 0.95);
+  color: #fff;
+}
+.scroll-btn.visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+.scroll-btn-left { left: 0; border-radius: 0 4px 4px 0; }
+.scroll-btn-right { right: 0; border-radius: 4px 0 0 4px; }
 
 .table-wrapper {
   flex: 1;

@@ -67,6 +67,7 @@ class ExecuteSQLRequest(BaseModel):
     database: Optional[str] = None
     schema_name: Optional[str] = None
     params: Optional[list] = None
+    limit: int = 2000  # 最大返回行数，0 表示不限
 
 
 class ExecuteSQLResponse(BaseModel):
@@ -75,6 +76,7 @@ class ExecuteSQLResponse(BaseModel):
     affected: int = 0
     is_query: bool = False
     error: Optional[str] = None
+    truncated: bool = False  # 是否因超出限制而被截断
 
 
 class BatchSQLItem(BaseModel):
