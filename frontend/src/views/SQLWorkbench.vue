@@ -3,7 +3,7 @@ import { ref, computed, h, onMounted, onUnmounted } from 'vue'
 import { api, ExecResult } from '../api'
 import { useMessage } from 'naive-ui'
 import SqlEditor from '../components/SqlEditor.vue'
-
+import AIAssistantPanel from '../components/AIAssistantPanel.vue'
 const props = withDefaults(defineProps<{
   connId?: number
   dbName?: string
@@ -34,6 +34,9 @@ const queryTime = ref(0)
 // ── 可拖拽分屏 (编辑器高度百分比) ──
 const splitRatio = ref(35) // 编辑器占比 %
 const isDragging = ref(false)
+
+// ── AI 助手侧边栏 ──
+const showAiAssistant = ref(false)
 
 function onSplitMouseDown(e: MouseEvent) {
   isDragging.value = true
@@ -440,10 +443,26 @@ async function exportResult() {
     ).join('\n')
 
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const filename = `query_result_${Date.now()}.csv`
+
+    // 在 pywebview 环境下使用原生保存对话框
+    const pv = (window as any).pywebview
+    if (pv?.api) {
+      const reader = new FileReader()
+      reader.onload = () => {
+        const base64 = (reader.result as string).split(',')[1]
+        pv.api.save_file(filename, base64)
+      }
+      reader.readAsDataURL(blob)
+      message.success(`已导出 ${allRows.value.length} 行数据`)
+      return
+    }
+
+    // 浏览器环境退化方案
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `query_result_${Date.now()}.csv`
+    a.download = filename
     a.click()
     URL.revokeObjectURL(url)
     message.success(`已导出 ${allRows.value.length} 行数据`)
@@ -553,6 +572,16 @@ async function doSaveQuery(overwrite?: boolean) {
           <n-button size="tiny" quaternary @click="openSaveQueryDialog" title="保存当前 SQL 到侧边栏查询列表">
             💾 保存查询
           </n-button>
+          <!-- AI 助手切换按钮 -->
+          <n-button
+            size="tiny"
+            :type="showAiAssistant ? 'primary' : 'default'"
+            quaternary
+            @click="showAiAssistant = !showAiAssistant"
+            title="AI 助手"
+          >
+            🤖
+          </n-button>
           <n-button size="tiny" type="primary" :loading="running" @click="runQuery">
             ▶ 执行
           </n-button>
@@ -562,12 +591,23 @@ async function doSaveQuery(overwrite?: boolean) {
         </n-space>
       </div>
 
-      <SqlEditor
-        v-model:modelValue="sqlText"
-        :connId="props.connId"
-        :dbName="props.dbName"
-        @execute="runQuery"
-      />
+      <div class="editor-body">
+        <div class="editor-sql-area" :class="{ 'with-ai': showAiAssistant }">
+          <SqlEditor
+            v-model:modelValue="sqlText"
+            :connId="props.connId"
+            :dbName="props.dbName"
+            @execute="runQuery"
+          />
+        </div>
+        <div v-if="showAiAssistant" class="editor-ai-panel">
+          <AIAssistantPanel
+            :conn-id="props.connId"
+            :db-name="props.dbName"
+            :schema-name="props.schemaName"
+          />
+        </div>
+      </div>
     </div>
 
     <!-- 拖拽分隔条 -->
@@ -723,6 +763,34 @@ async function doSaveQuery(overwrite?: boolean) {
   gap: 4px;
   min-height: 60px;
   overflow: hidden;
+}
+
+.editor-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  gap: 0;
+  overflow: hidden;
+}
+
+.editor-sql-area {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.editor-sql-area.with-ai {
+  width: 60%;
+  flex: none;
+}
+
+.editor-ai-panel {
+  width: 40%;
+  min-width: 280px;
+  max-width: 420px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .editor-toolbar {

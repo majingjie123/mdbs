@@ -69,25 +69,90 @@ npm run dev
 
 打开浏览器访问 `http://localhost:5173`（Vite 开发服务器自动代理 API 到 18081 端口）。
 
-### 生产模式运行
+### 生产模式运行（浏览器访问）
 
 ```bash
 # 1. 构建前端
 cd frontend
 npm run build
 
-# 2. 启动后端 (自动加载前端静态文件)
+# 2. 启动后端服务 (自动托管前端静态文件)
 python scripts/run_backend.py
 ```
 
 访问 `http://127.0.0.1:18081/`。
 
-### 打包为独立可执行文件
+### 桌面原生模式（打包为独立可执行文件）
+
+MDBS 使用 **PyInstaller** 将后端 + 前端打包为单个目录，同时嵌入 **pywebview** 原生桌面窗口，用户无需浏览器即可使用。
+
+#### 环境准备
 
 ```bash
-pip install pyinstaller
+# 安装 Node.js 依赖（仅首次）
+cd frontend
+npm install
+
+# 安装 Python 依赖（仅首次）
+cd backend
+pip install -r requirements.txt
+pip install pywebview                         # 原生桌面窗口
+```
+
+#### 构建步骤
+
+```bash
+# 第 1 步：构建前端 SPA
+cd frontend
+npm run build
+# 生成: frontend/dist/
+
+# 第 2 步：打包后端 + 前端为独立 exe
+cd ..
 python scripts/build_backend_exe.py
-# 输出: dist/mdbs-server/
+```
+
+#### 输出产物
+
+```
+dist/mdbs-server/
+├── mdbs-server.exe          # 主程序入口（双击运行）
+├── _internal/               # 依赖库运行环境
+│   └── frontend/dist/       # 前端静态文件（已打包在内）
+```
+
+#### 使用方式
+
+直接双击 `dist/mdbs-server/mdbs-server.exe` 启动，将弹出原生桌面窗口：
+
+- **标题**: MDBS
+- **默认尺寸**: 1280×800（最小 800×600）
+- **窗口行为**: 可拖拽缩放，启动时自动最大化
+- **托盘**: 关闭窗口不会终止后端进程
+
+#### 传给其他用户
+
+只需将 `dist/mdbs-server/` 整个目录压缩后分发，接收方解压后直接运行 `.exe` 即可（无需安装 Python / Node.js）。
+
+#### 常见问题
+
+**Q: 启动后窗口空白 / 白屏？**
+A: 检查端口 18081 是否被占用，尝试设置环境变量 `MDBS_PORT=18082` 后重新启动。
+
+**Q: 如何更换端口？**
+A: 设置环境变量 `MDBS_PORT=新端口`，例如：
+```cmd
+set MDBS_PORT=19000
+mdbs-server.exe
+```
+
+**Q: 如何以无窗口模式运行（仅作为 Web 服务）？**
+A: 当前不支持从 exe 中剥离窗口。如需纯 Web 服务，请使用「生产模式运行（浏览器访问）」方式启动。
+
+**Q: 运行后闪退？**
+A: 查看用户目录下的 `mdbs_debug.log` 文件获取详细错误信息：
+```
+%USERPROFILE%\mdbs_debug.log
 ```
 
 ---

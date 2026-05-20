@@ -96,6 +96,9 @@ def _run_sync_task(
         elif event_type == "progress":
             with _tasks_lock:
                 _sync_tasks[task_id]["progress"] = data
+        elif event_type == "row_progress":
+            with _tasks_lock:
+                _sync_tasks[task_id]["row_progress"] = data
         elif event_type == "done":
             with _tasks_lock:
                 _sync_tasks[task_id]["result"] = data
@@ -166,6 +169,7 @@ def sync_start(body: SyncRequest, storage: DBStorage = Depends(get_db_storage)):
         _sync_tasks[task_id] = {
             "status": "running",
             "progress": {"table": "", "index": 0, "total": total, "percent": 0},
+            "row_progress": None,
             "logs": [],
             "result": None,
             "error": "",
@@ -220,6 +224,7 @@ def sync_progress(task_id: str):
                 "task_id": task_id,
                 "status": task["status"],
                 "progress": task["progress"],
+                "row_progress": task["row_progress"],
                 "logs": task["logs"][-50:],
                 "result": task["result"],
                 "record_id": task["record_id"],

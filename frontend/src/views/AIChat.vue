@@ -9,130 +9,204 @@
         <span v-if="sessions.length > 1" class="session-close" @click.stop="closeSession(sess.id)">&times;</span>
       </div>
       <div class="session-add" @click="addSession" title="新建会话">+</div>
+      <div class="ctx-cache-badge" v-if="cachedContextInfo" title="已从本地缓存恢复表结构上下文">💾 {{ cachedContextInfo }}</div>
     </div>
 
-<!-- 顶栏 -->
-    <div class="bar">
-      <div class="bar-left">
-        <n-select v-model:value="activeConfigId" :options="configOptions" placeholder="AI 配置" style="width:180px" clearable />
-        <n-button size="small" @click="openTableSelect" :loading="contextLoading" :disabled="!connId">加载上下文</n-button>
-        <span v-if="contextText" class="ctx-dot active" title="已加载上下文"></span>
-        <span v-else class="ctx-dot" title="无上下文"></span>
-        <n-tag v-if="contextInfo" size="small" type="info">{{ contextInfo }}</n-tag>
-        <n-button v-if="contextText" size="small" quaternary @click="showContext=!showContext">预览</n-button>
-        <n-button v-if="contextText" size="small" quaternary @click="clearContext">✕ 清除上下文</n-button>
-      </div>
-      <div class="bar-right">
-        <n-button size="small" quaternary @click="saveChat" :disabled="!messages.length">保存</n-button>
-        <n-button size="small" quaternary @click="loadHistory">历史</n-button>
-        <n-button size="small" quaternary @click="showExport=true" :disabled="!messages.length">导出</n-button>
-        <n-button size="small" quaternary @click="clearChat" :disabled="!messages.length">清空</n-button>
-        <n-button size="small" quaternary @click="goAISettings">设置</n-button>
-      </div>
-    </div>
-
-    <!-- 消息区 -->
-    <div ref="msgArea" class="msgs" @scroll="onScrollMsg">
-      <!-- 欢迎 -->
-      <div v-if="!messages.length" class="welcome">
-        <h2>AI 助手</h2>
-        <p v-if="!props.connId">选择 AI 配置 &rarr; 选择连接并加载上下文 &rarr; 开始对话</p>
-        <p v-else-if="contextInfo">当前上下文：<strong style="color:#2080f0">{{ contextInfo }}</strong></p>
-        <p v-else-if="props.connName"><strong>{{ props.connName }}</strong> 已连接。选择表并加载上下文后开始对话。</p>
-        <p v-else>已连接数据库。选择表并加载上下文后开始对话。</p>
-        <div class="prompts">
-          <n-button size="tiny" secondary @click="useTmpl('列出当前数据库所有表')">列出所有表</n-button>
-          <n-button size="tiny" secondary @click="useTmpl('分析这个数据库的设计')">分析架构</n-button>
-          <n-button size="tiny" secondary @click="useTmpl('解释外键关系')">外键关系</n-button>
-          <n-button size="tiny" secondary @click="useTmpl('生成多表 JOIN')">JOIN 示例</n-button>
-        </div>
-      </div>
-
-      <div v-for="(m,i) in messages" :key="i" :class="['msg', m.role==='user'?'u':'a']">
-        <n-avatar :size="28" :color="m.role==='user'?'#2080f0':'#18a058'">{{ m.role==='user'?'U':'AI' }}</n-avatar>
-        <div class="msg-body">
-          <div class="msg-name">{{ m.role==='user'?'你':'AI 助手' }}</div>
-          <div v-if="m.role==='system'" class="sys-text">{{ m.content }}</div>
-          <!-- 用户消息：显示或编辑 -->
-          <template v-else-if="m.role==='user'">
-            <div v-if="editMsgIdx===i" class="edit-msg-wrap">
-              <n-input v-model:value="editMsgText" type="textarea" :rows="3" :autosize="{minRows:2,maxRows:6}" />
-              <div class="edit-msg-actions">
-                <n-button size="tiny" @click="cancelEditMsg">取消</n-button>
-                <n-button size="tiny" type="primary" @click="confirmEditMsg(i)">确认修改</n-button>
-              </div>
+    <!-- 主区域：左 SQL + 右 AI -->
+    <div class="main-area" ref="mainAreaRef">
+      <!-- ============ 左侧 SQL 工作区 ============ -->
+      <div class="sql-panel" :style="{ width: leftRatio + '%' }">
+        <!-- SQL 编辑器 -->
+        <div class="editor-panel" :style="{ height: sqlSplitRatio + '%' }">
+          <div class="editor-toolbar">
+            <span class="toolbar-title">SQL 编辑器</span>
+            <div class="toolbar-actions">
+              <n-button size="tiny" quaternary @click="clearSql" :disabled="!sqlText.trim()">清空</n-button>
+              <n-button size="tiny" quaternary @click="formatSql">格式化</n-button>
             </div>
-            <div v-else class="msg-text user-msg" v-html="renderMD(m.content)" @dblclick="editUserMsg(i)"></div>
-          </template>
-          <!-- 助手消息：显示内容或等待动画 -->
-          <div v-else-if="m.role==='assistant' && !m.content && streaming && i===messages.length-1" class="msg-text loading-text">
-            <span class="loading-dot" v-for="n in loadingDots" :key="n">.</span>
           </div>
-          <div v-else class="msg-text" v-html="renderMD(m.content)"></div>
+          <div class="editor-body">
+            <SqlEditor
+              v-model:modelValue="sqlText"
+              :connId="props.connId ?? undefined"
+              :dbName="props.dbName"
+              @execute="runQuery"
+            />
+          </div>
         </div>
-        <div v-if="m.role!=='system' && editMsgIdx!==i" class="msg-act" @click.stop>
-          <span @click="copyMsg(m.content)" title="复制"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></span>
-          <span v-if="m.role==='user'" @click="editUserMsg(i)" title="编辑"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></span>
-          <span v-if="m.role==='assistant' && i===messages.length-1 && !streaming" @click="regrow" title="重新生成"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L22 10"/></svg></span>
-          <span @click="delMsg(i)" title="删除"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg></span>
+
+        <!-- 垂直分割条 -->
+        <div class="split-bar" @mousedown.prevent="onSqlSplitMouseDown"></div>
+
+        <!-- 查询结果 -->
+        <div class="result-panel" :style="{ height: (100 - sqlSplitRatio) + '%' }">
+          <div class="result-toolbar">
+            <span class="toolbar-title">查询结果</span>
+            <div class="toolbar-actions">
+              <n-button size="tiny" type="primary" :loading="running" @click="runQuery">▶ 执行</n-button>
+              <n-button size="tiny" quaternary @click="clearResult" :disabled="!result">清空</n-button>
+              <span v-if="result && allRows.length" style="color:var(--color-text-muted);font-size:12px;margin-left:4px">{{ totalRows }} 行{{ queryTime ? ` (${queryTime}ms)` : '' }}</span>
+            </div>
+          </div>
+          <div class="result-body">
+            <n-spin :show="running">
+              <div v-if="!result" class="result-empty">输入 SQL 并点击执行</div>
+              <div v-else-if="result.error" class="result-error">{{ result.error }}</div>
+              <div v-else-if="!result.is_query && result.affected !== undefined" class="result-affected">影响行数: {{ result.affected }}</div>
+              <template v-else-if="result.columns && result.columns.length">
+                <div class="result-table-wrap">
+                  <n-data-table
+                    :columns="tableColumns"
+                    :data="displayRows"
+                    :max-height="'100%'"
+                    :bordered="true"
+                    :single-line="false"
+                    size="small"
+                    striped
+                  />
+                </div>
+                <div class="result-pagination" v-if="totalPages > 1">
+                  <n-pagination
+                    v-model:page="page"
+                    :page-count="totalPages"
+                    :page-size="pageSize"
+                    :simple="true"
+                  />
+                </div>
+              </template>
+              <div v-else class="result-empty">无结果</div>
+            </n-spin>
+          </div>
         </div>
       </div>
 
-      <n-alert v-if="errMsg" type="error" closable @close="errMsg=''" style="margin:8px 0">{{ errMsg }}</n-alert>
-      <div v-if="showScrollBtn" class="scroll-btn" @click="scrollDown">&darr;</div>
-    </div>
+      <!-- 水平分割条 -->
+      <div class="vsplit-bar" @mousedown.prevent="onVSplitMouseDown"></div>
 
-    <!-- 输入 -->
-    <div class="input-area">
-      <div class="quick-row">
-        <n-button size="tiny" quaternary @click="openTableSelect" :disabled="!connId || streaming">📋 加载表结构</n-button>
-        <n-button v-if="contextText" size="tiny" quaternary @click="clearContext" :disabled="streaming">🧹 清空上下文</n-button>
-      </div>
-      <div class="input-wrapper">
-        <n-input v-model:value="input" type="textarea" :rows="2" :autosize="{minRows:2,maxRows:6}"
-          placeholder="输入消息，Enter 发送，Shift+Enter 换行..." :disabled="streaming"
-          @keydown="onKey" />
-        <div class="send-btn-wrap" :class="{ streaming }" @click="streaming?stop():send()" :title="streaming?'停止':'发送'">
-          <svg v-if="!streaming" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/>
-          </svg>
-          <svg v-else width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-            <rect x="6" y="6" width="5" height="12"/><rect x="13" y="6" width="5" height="12"/>
-          </svg>
+      <!-- ============ 右侧 AI 对话区 ============ -->
+      <div class="ai-panel" :style="{ width: (100 - leftRatio) + '%' }">
+        <!-- 顶栏 -->
+        <div class="bar">
+          <div class="bar-left">
+            <n-select v-model:value="activeConfigId" :options="configOptions" placeholder="AI 配置" style="width:150px" clearable size="small" />
+            <n-button size="tiny" @click="openTableSelect" :loading="contextLoading" :disabled="!connId">加载上下文</n-button>
+            <span v-if="contextText" class="ctx-dot active" title="已加载上下文"></span>
+            <span v-else class="ctx-dot" title="无上下文"></span>
+            <n-tag v-if="contextInfo" size="tiny" type="info" style="max-width:150px;overflow:hidden;text-overflow:ellipsis">{{ contextInfo }}</n-tag>
+            <n-button v-if="contextText" size="tiny" quaternary @click="showContext=!showContext">预览</n-button>
+            <n-button v-if="contextText" size="tiny" quaternary @click="clearContext">✕ 清除</n-button>
+          </div>
+          <div class="bar-right">
+            <n-button size="tiny" quaternary @click="saveChat" :disabled="!messages.length">保存</n-button>
+            <n-button size="tiny" quaternary @click="loadHistory">历史</n-button>
+            <n-button size="tiny" quaternary @click="showExport=true" :disabled="!messages.length">导出</n-button>
+            <n-button size="tiny" quaternary @click="clearChat" :disabled="!messages.length">清空</n-button>
+            <n-button size="tiny" quaternary @click="goAISettings">设置</n-button>
+          </div>
+        </div>
+
+        <!-- 消息区 -->
+        <div ref="msgArea" class="msgs" @scroll="onScrollMsg">
+          <!-- 欢迎 -->
+          <div v-if="!messages.length" class="welcome">
+            <h2>AI 助手</h2>
+            <p v-if="!props.connId">选择 AI 配置 → 选择连接并加载上下文 → 开始对话</p>
+            <p v-else-if="contextInfo">当前上下文：<strong style="color:var(--color-accent)">{{ contextInfo }}</strong></p>
+            <p v-else-if="props.connName"><strong>{{ props.connName }}</strong> 已连接。选择表并加载上下文后开始对话。</p>
+            <p v-else>已连接数据库。选择表并加载上下文后开始对话。</p>
+            <div class="prompts">
+              <n-button size="tiny" secondary @click="useTmpl('列出当前数据库所有表')">列出所有表</n-button>
+              <n-button size="tiny" secondary @click="useTmpl('分析这个数据库的设计')">分析架构</n-button>
+              <n-button size="tiny" secondary @click="useTmpl('解释外键关系')">外键关系</n-button>
+              <n-button size="tiny" secondary @click="useTmpl('生成多表 JOIN')">JOIN 示例</n-button>
+            </div>
+          </div>
+
+          <div v-for="(m,i) in messages" :key="i" :class="['msg', m.role==='user'?'u':'a']">
+            <n-avatar :size="24" :color="m.role==='user'?'var(--color-accent)':'var(--color-success)'">{{ m.role==='user'?'U':'AI' }}</n-avatar>
+            <div class="msg-body">
+              <div class="msg-name">{{ m.role==='user'?'你':'AI 助手' }}</div>
+              <div v-if="m.role==='system'" class="sys-text">{{ m.content }}</div>
+              <template v-else-if="m.role==='user'">
+                <div v-if="editMsgIdx===i" class="edit-msg-wrap">
+                  <n-input v-model:value="editMsgText" type="textarea" :rows="2" :autosize="{minRows:2,maxRows:4}" />
+                  <div class="edit-msg-actions">
+                    <n-button size="tiny" @click="cancelEditMsg">取消</n-button>
+                    <n-button size="tiny" type="primary" @click="confirmEditMsg(i)">确认修改</n-button>
+                  </div>
+                </div>
+                <div v-else class="msg-text user-msg" v-html="renderMD(m.content)" @dblclick="editUserMsg(i)"></div>
+              </template>
+              <div v-else-if="m.role==='assistant' && !m.content && streaming && i===messages.length-1" class="msg-text loading-text">
+                <span class="loading-dot" v-for="n in loadingDots" :key="n">.</span>
+              </div>
+              <div v-else class="msg-text" v-html="renderMD(m.content)"></div>
+            </div>
+            <div v-if="m.role!=='system' && editMsgIdx!==i" class="msg-act" @click.stop>
+              <span @click="copyMsg(m.content)" title="复制">📋</span>
+              <span v-if="m.role==='user'" @click="editUserMsg(i)" title="编辑">✏️</span>
+              <span v-if="m.role==='assistant' && i===messages.length-1 && !streaming" @click="regrow" title="重新生成">🔄</span>
+              <span @click="delMsg(i)" title="删除">🗑️</span>
+            </div>
+          </div>
+
+          <n-alert v-if="errMsg" type="error" closable @close="errMsg=''" style="margin:8px 0">{{ errMsg }}</n-alert>
+          <div v-if="showScrollBtn" class="scroll-btn" @click="scrollDown">↓</div>
+        </div>
+
+        <!-- 输入 -->
+        <div class="input-area">
+          <div class="quick-row">
+            <n-button size="tiny" quaternary @click="openTableSelect" :disabled="!connId || streaming">📋 加载表结构</n-button>
+            <n-button v-if="contextText" size="tiny" quaternary @click="clearContext" :disabled="streaming">🧹 清空上下文</n-button>
+          </div>
+          <div class="input-wrapper">
+            <n-input v-model:value="input" type="textarea" :rows="2" :autosize="{minRows:2,maxRows:4}"
+              placeholder="输入消息，Enter 发送，Shift+Enter 换行..." :disabled="streaming"
+              @keydown="onKey" />
+            <div class="send-btn-wrap" :class="{ streaming }" @click="streaming?stop():send()" :title="streaming?'停止':'发送'">
+              <svg v-if="!streaming" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/>
+              </svg>
+              <svg v-else width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                <rect x="6" y="6" width="5" height="12"/><rect x="13" y="6" width="5" height="12"/>
+              </svg>
+            </div>
+          </div>
         </div>
       </div>
     </div>
 
     <!-- 上下文预览 -->
-    <n-modal v-model:show="showContext" title="数据库上下文" preset="card" style="width:680px">
-      <pre style="white-space:pre-wrap;max-height:400px;overflow:auto;">{{ contextText }}</pre>
+    <n-modal v-model:show="showContext" title="数据库上下文" preset="card" style="width:600px">
+      <pre style="white-space:pre-wrap;max-height:350px;overflow:auto;font-size:12px;color:var(--color-text);background:var(--bg-app);padding:8px;border-radius:4px">{{ contextText }}</pre>
     </n-modal>
 
     <!-- 表选择对话框 -->
     <n-modal v-model:show="showTableSelect"
-      title="选择表结构" preset="card" style="width:520px"
+      title="选择表结构" preset="card" style="width:500px"
       mask-closable>
       <template #header>
-        <span style="font-size:14px;color:#e0e0e0">选择要加载结构的数据表</span>
+        <span style="font-size:14px">选择要加载结构的数据表</span>
       </template>
       <div style="margin-bottom:8px;display:flex;align-items:center;gap:8px">
         <n-input v-model:value="tableFilter" placeholder="搜索表名…" clearable size="small" style="flex:1" />
-        <span style="color:#888;font-size:12px;white-space:nowrap">{{ filteredTableList.length }} / {{ tableList.length }} 张表，已选 {{ tableList.filter(t=>t.checked).length }} 张</span>
+        <span style="color:var(--color-text-muted);font-size:12px;white-space:nowrap">{{ filteredTableList.length }} / {{ tableList.length }} 张表，已选 {{ tableList.filter(t=>t.checked).length }} 张</span>
         <n-space>
           <n-button size="tiny" @click="selectAllTables">全选</n-button>
           <n-button size="tiny" @click="deselectAllTables">取消全选</n-button>
         </n-space>
       </div>
       <n-spin :show="tableLoading">
-        <div style="max-height:300px;overflow-y:auto;border:1px solid #3c3c3c;border-radius:4px;padding:4px 0">
-          <div v-for="t in filteredTableList" :key="t.name" style="display:flex;align-items:center;padding:6px 10px;cursor:pointer;border-bottom:1px solid #333"
+        <div style="max-height:280px;overflow-y:auto;border:1px solid var(--color-border);border-radius:4px;padding:4px 0">
+          <div v-for="t in filteredTableList" :key="t.name" style="display:flex;align-items:center;padding:5px 8px;cursor:pointer;border-bottom:1px solid var(--color-border)"
             :style="{background:t.checked?'rgba(32,128,240,0.1)':'transparent'}"
             @click="t.checked=!t.checked">
-            <n-checkbox :checked="t.checked" style="margin-right:8px" />
-            <span style="font-size:13px;color:#ccc">{{ t.name }}</span>
-            <span v-if="t.comment" style="margin-left:8px;font-size:11px;color:#666">— {{ t.comment }}</span>
+            <n-checkbox :checked="t.checked" style="margin-right:6px" />
+            <span style="font-size:13px;color:var(--color-text)">{{ t.name }}</span>
+            <span v-if="t.comment" style="margin-left:6px;font-size:11px;color:var(--color-text-muted)">— {{ t.comment }}</span>
           </div>
-          <div v-if="!tableLoading && tableList.length===0" style="padding:20px;text-align:center;color:#666">该数据库无表</div>
+          <div v-if="!tableLoading && tableList.length===0" style="padding:20px;text-align:center;color:var(--color-text-muted)">该数据库无表</div>
         </div>
       </n-spin>
       <template #footer>
@@ -146,10 +220,10 @@
     </n-modal>
 
     <!-- 导出 -->
-    <n-modal v-model:show="showExport" title="导出对话" preset="card" style="width:400px">
+    <n-modal v-model:show="showExport" title="导出对话" preset="card" style="width:360px">
       <n-space vertical>
         <n-button @click="doExport('markdown')">导出 Markdown</n-button>
-        <n-button @click="doExport('text')" style="margin-top:8px">导出纯文本</n-button>
+        <n-button @click="doExport('text')">导出纯文本</n-button>
       </n-space>
     </n-modal>
 
@@ -161,10 +235,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, nextTick, computed } from 'vue'
+import { ref, onMounted, nextTick, computed, onUnmounted } from 'vue'
 import { useMessage, useDialog } from 'naive-ui'
-import { api } from '../api'
+import { api, ExecResult } from '../api'
 import { useAppStore } from '../stores/app'
+import SqlEditor from '../components/SqlEditor.vue'
 
 const props = withDefaults(defineProps<{
   connId?: number | null; db?: string; dbName?: string; schemaName?: string; tableName?: string; nodeType?: string; connName?: string;
@@ -172,6 +247,166 @@ const props = withDefaults(defineProps<{
 }>(), { connId: null, db: '', dbName: '', schemaName: '', tableName: '', nodeType: '', connName: '', _sessionTables: () => [], _sessionViews: () => [] })
 
 const msg = useMessage(), dialog = useDialog(), store = useAppStore()
+
+// ════════════════════════════════════════
+// SQL 工作区
+// ════════════════════════════════════════
+const sqlText = ref('SELECT 1')
+const result = ref<ExecResult | null>(null)
+const running = ref(false)
+const queryTime = ref(0)
+const abortController = ref<AbortController | null>(null)
+
+// 可拖拽分屏：SQL 编辑器高度百分比
+const sqlSplitRatio = ref(40)
+const sqlDragging = ref(false)
+
+function onSqlSplitMouseDown(e: MouseEvent) {
+  sqlDragging.value = true; e.preventDefault()
+}
+function onSqlSplitMouseMove(e: MouseEvent) {
+  if (!sqlDragging.value) return
+  const container = document.querySelector('.sql-panel') as HTMLElement
+  if (!container) return
+  const rect = container.getBoundingClientRect()
+  const y = e.clientY - rect.top
+  sqlSplitRatio.value = Math.max(15, Math.min(75, (y / rect.height) * 100))
+}
+function onSqlSplitMouseUp() { sqlDragging.value = false }
+onMounted(() => {
+  document.addEventListener('mousemove', onSqlSplitMouseMove)
+  document.addEventListener('mouseup', onSqlSplitMouseUp)
+})
+onUnmounted(() => {
+  document.removeEventListener('mousemove', onSqlSplitMouseMove)
+  document.removeEventListener('mouseup', onSqlSplitMouseUp)
+})
+
+// 水平分屏：左 SQL / 右 AI 比例
+const leftRatio = ref(50)
+const vsplitDragging = ref(false)
+const mainAreaRef = ref<HTMLElement | null>(null)
+
+function onVSplitMouseDown(e: MouseEvent) {
+  vsplitDragging.value = true; e.preventDefault()
+}
+function onVSplitMouseMove(e: MouseEvent) {
+  if (!vsplitDragging.value) return
+  const el = mainAreaRef.value
+  if (!el) return
+  const rect = el.getBoundingClientRect()
+  const x = e.clientX - rect.left
+  leftRatio.value = Math.max(20, Math.min(80, (x / rect.width) * 100))
+}
+function onVSplitMouseUp() { vsplitDragging.value = false }
+onMounted(() => {
+  document.addEventListener('mousemove', onVSplitMouseMove)
+  document.addEventListener('mouseup', onVSplitMouseUp)
+})
+onUnmounted(() => {
+  document.removeEventListener('mousemove', onVSplitMouseMove)
+  document.removeEventListener('mouseup', onVSplitMouseUp)
+})
+
+// ── SQL 执行 ──
+const page = ref(1)
+const pageSize = ref(100)
+const allRows = ref<any[][]>([])
+const displayRows = computed(() => {
+  const start = (page.value - 1) * pageSize.value
+  return allRows.value.slice(start, start + pageSize.value)
+})
+const totalPages = computed(() => Math.max(1, Math.ceil(allRows.value.length / pageSize.value)))
+const totalRows = computed(() => allRows.value.length)
+
+const tableColumns = computed(() => {
+  if (!result.value?.columns) return []
+  return result.value.columns.map((col: string) => ({
+    title: col, key: col, width: 160, resizable: true,
+    ellipsis: { tooltip: true },
+    render: (row: any) => {
+      const v = row[col]; return v === null || v === undefined ? '<span style="color:var(--color-text-muted)">NULL</span>' : String(v)
+    }
+  }))
+})
+
+async function runQuery() {
+  if (!props.connId || !sqlText.value.trim()) { msg.warning('请输入 SQL 并选择连接'); return }
+  running.value = true; result.value = null; page.value = 1; allRows.value = []
+  const startTime = performance.now()
+  abortController.value = new AbortController()
+  try {
+    const r: any = await api.executeSQL(props.connId, sqlText.value, props.db || props.dbName || undefined, props.schemaName || undefined, abortController.value.signal)
+    queryTime.value = Math.round(performance.now() - startTime)
+    if (r.success && r.data) {
+      result.value = r.data
+      allRows.value = r.data.rows || []
+    } else {
+      result.value = { columns: [], rows: [], is_query: false, affected: 0, error: r.message || '执行失败' }
+    }
+  } catch (e: any) {
+    queryTime.value = Math.round(performance.now() - startTime)
+    result.value = { columns: [], rows: [], is_query: false, affected: 0, error: e.message || '请求失败' }
+  } finally { running.value = false; abortController.value = null }
+}
+
+function clearSql() { sqlText.value = ''; result.value = null; allRows.value = []; page.value = 1 }
+
+function formatSql() {
+  let s = sqlText.value.trim()
+  if (!s) return
+  const kw = /\b(SELECT|FROM|WHERE|AND|OR|ORDER BY|GROUP BY|HAVING|LIMIT|OFFSET|INSERT INTO|VALUES|UPDATE|SET|DELETE|CREATE|ALTER|DROP|JOIN|LEFT JOIN|RIGHT JOIN|INNER JOIN|OUTER JOIN|ON|UNION|ALL|INTO|LIKE|BETWEEN|EXISTS|NOT|IN|AS|DISTINCT|COUNT|SUM|AVG|MIN|MAX)\b/gi
+  s = s.replace(kw, m => m.toUpperCase())
+  const breakKw = /\b(WHERE|ORDER BY|GROUP BY|HAVING|LIMIT|OFFSET|JOIN|LEFT JOIN|RIGHT JOIN|INNER JOIN|OUTER JOIN|ON|UNION|AND|OR)\b/gi
+  const parts: string[] = []; let last = 0; let match: RegExpExecArray | null
+  while ((match = breakKw.exec(s)) !== null) {
+    const pos = match.index
+    if (pos > last) parts.push(s.slice(last, pos))
+    const before = s.slice(0, pos)
+    const quotes = (before.match(/'/g)||[]).length
+    parts.push(quotes % 2 === 1 ? match[0] : '\n  ' + match[0])
+    last = breakKw.lastIndex
+  }
+  if (last < s.length) parts.push(s.slice(last))
+  sqlText.value = parts.join('').trim()
+}
+
+function clearResult() { result.value = null; allRows.value = []; page.value = 1 }
+
+// ════════════════════════════════════════
+// 表结构上下文缓存持久化
+// ════════════════════════════════════════
+const cachedContextInfo = ref('')
+
+function getContextCacheKey(): string {
+  return `ai_ctx_${props.connId}_${props.db || props.dbName || ''}`
+}
+
+function saveContextToCache() {
+  if (!props.connId) return
+  const sess = sessions.value.find(s=>s.id===activeSessionId.value)
+  if (!sess || !sess.ctxText) return
+  try {
+    const key = getContextCacheKey()
+    const data = { contextText: sess.ctxText, contextInfo: sess.ctxInfo, timestamp: Date.now() }
+    localStorage.setItem(key, JSON.stringify(data))
+  } catch {}
+}
+
+function loadContextFromCache(): boolean {
+  if (!props.connId) return false
+  try {
+    const key = getContextCacheKey()
+    const raw = localStorage.getItem(key)
+    if (!raw) return false
+    const data = JSON.parse(raw)
+    if (!data.contextText) return false
+    const sess = sessions.value.find(s=>s.id===activeSessionId.value)
+    if (sess) { sess.ctxText = data.contextText; sess.ctxInfo = data.contextInfo }
+    cachedContextInfo.value = data.contextInfo || ''
+    return true
+  } catch { return false }
+}
 
 // 表筛选
 const tableFilter = ref('')
@@ -281,6 +516,8 @@ async function confirmBuildContext() {
     if (r.success && r.data) {
       const sess = sessions.value.find(s=>s.id===activeSessionId.value)
       if (sess) { sess.ctxText = r.data.context; sess.ctxInfo = `${props.dbName||props.db||''} (${r.data.db_type}) - ${selected.length} 张表` }
+      saveContextToCache()
+      cachedContextInfo.value = ''
       const loadedCount = r.data.tables ?? 0
       if (loadedCount === 0) {
         msg.warning('未能查到任何表的字段信息，请检查数据库连接及表名是否正确')
@@ -537,9 +774,26 @@ function doExport(format: string) {
     }
   }
   const blob = new Blob([lines.join('\n')], { type: format === 'markdown' ? 'text/markdown' : 'text/plain' })
+  const filename = `ai-chat-${Date.now()}.${format==='markdown'?'md':'txt'}`
+
+  // 在 pywebview 环境下使用原生保存对话框
+  const pv = (window as any).pywebview
+  if (pv?.api) {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const base64 = (reader.result as string).split(',')[1]
+      pv.api.save_file(filename, base64)
+    }
+    reader.readAsDataURL(blob)
+    showExport.value = false
+    msg.success('导出成功')
+    return
+  }
+
+  // 浏览器环境退化方案
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
-  a.href = url; a.download = `ai-chat-${Date.now()}.${format==='markdown'?'md':'txt'}`; a.click()
+  a.href = url; a.download = filename; a.click()
   URL.revokeObjectURL(url)
   showExport.value = false
   msg.success('导出成功')
@@ -676,7 +930,11 @@ async function autoLoadContext() {
 onMounted(async () => {
   loadConfigs()
   if (props.connId) {
-    await autoLoadContext()
+    // 先从本地缓存恢复表结构上下文
+    const cached = loadContextFromCache()
+    if (!cached) {
+      await autoLoadContext()
+    }
   }
 })
 </script>
@@ -752,4 +1010,28 @@ onMounted(async () => {
 .msg-text :deep(a:hover){color:var(--color-accent-alt)}
 .msg-text :deep(.user-msg){cursor:pointer}
 .msg-text :deep(.user-msg:hover){opacity:0.85}
+/* ════════════════════════════════════════
+   三栏布局
+   ════════════════════════════════════════ */
+.main-area{display:flex;flex:1;overflow:hidden;min-height:0}
+.sql-panel{display:flex;flex-direction:column;border-right:1px solid var(--color-border);overflow:hidden}
+.ai-panel{display:flex;flex-direction:column;overflow:hidden}
+.editor-panel{display:flex;flex-direction:column;overflow:hidden;min-height:60px}
+.editor-body{flex:1;overflow:hidden;position:relative;min-height:0}
+.editor-toolbar{display:flex;align-items:center;justify-content:space-between;padding:3px 10px;background:var(--bg-sidebar);border-bottom:1px solid var(--color-border);flex-shrink:0}
+.toolbar-title{font-size:12px;color:var(--color-text-muted);font-weight:600}
+.toolbar-actions{display:flex;align-items:center;gap:4px}
+.result-panel{display:flex;flex-direction:column;overflow:hidden;min-height:40px}
+.result-toolbar{display:flex;align-items:center;justify-content:space-between;padding:3px 10px;background:var(--bg-sidebar);border-top:1px solid var(--color-border);border-bottom:1px solid var(--color-border);flex-shrink:0}
+.result-body{flex:1;overflow:auto;padding:4px 8px;min-height:0}
+.result-table-wrap{max-height:calc(100% - 40px);overflow:auto}
+.result-empty,.result-error,.result-affected{padding:20px;text-align:center;color:var(--color-text-muted);font-size:13px}
+.result-error{color:#e53935}
+.result-affected{color:var(--color-text-secondary)}
+.result-pagination{display:flex;justify-content:flex-end;padding:6px 0}
+.split-bar{height:4px;background:var(--bg-hover);cursor:ns-resize;flex-shrink:0;transition:background .2s;border-top:1px solid var(--color-border);border-bottom:1px solid var(--color-border)}
+.split-bar:hover{background:var(--color-accent)}
+.vsplit-bar{width:4px;background:var(--bg-hover);cursor:ew-resize;flex-shrink:0;transition:background .2s;border-left:1px solid var(--color-border);border-right:1px solid var(--color-border)}
+.vsplit-bar:hover{background:var(--color-accent)}
+.ctx-cache-badge{display:flex;align-items:center;padding:3px 8px;font-size:11px;color:var(--color-accent);gap:4px;white-space:nowrap}
 </style>

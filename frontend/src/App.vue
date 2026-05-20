@@ -1,12 +1,85 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
-import { darkTheme } from 'naive-ui'
+import { computed, onMounted } from 'vue'
+import { darkTheme, type GlobalThemeOverrides } from 'naive-ui'
 import { NConfigProvider, NMessageProvider, NDialogProvider, NLoadingBarProvider } from 'naive-ui'
 import AppLayout from './components/AppLayout.vue'
 import { useAppStore } from './stores/app'
 
 const store = useAppStore()
-const theme = darkTheme
+
+// 根据 themeId 动态生成 NaiveUI 主题覆盖
+const themeOverrides = computed<GlobalThemeOverrides | null>(() => {
+  switch (store.themeId) {
+    case 'eye':
+      return {
+        common: {
+          primaryColor: '#66bb6a',
+          primaryColorHover: '#81c784',
+          primaryColorPressed: '#4caf50',
+          primaryColorSuppl: '#66bb6a',
+          borderColor: '#2e7d32',
+          dividerColor: '#2e7d32',
+        },
+      }
+    case 'hacker':
+      return {
+        common: {
+          primaryColor: '#00ff41',
+          primaryColorHover: '#33ff66',
+          primaryColorPressed: '#00cc33',
+          primaryColorSuppl: '#00ff41',
+          borderColor: '#0a3a0a',
+          dividerColor: '#0a3a0a',
+        },
+      }
+    case 'deepblue':
+      return {
+        common: {
+          primaryColor: '#4a8bc2',
+          primaryColorHover: '#64b5f6',
+          primaryColorPressed: '#3a7bb2',
+          primaryColorSuppl: '#4a8bc2',
+          borderColor: '#1a2a4a',
+          dividerColor: '#1a2a4a',
+        },
+      }
+    case 'purple':
+      return {
+        common: {
+          primaryColor: '#ab47bc',
+          primaryColorHover: '#ce93d8',
+          primaryColorPressed: '#9c27b0',
+          primaryColorSuppl: '#ab47bc',
+          borderColor: '#3a1a4a',
+          dividerColor: '#3a1a4a',
+        },
+      }
+    case 'pink':
+      return {
+        common: {
+          primaryColor: '#e91e63',
+          primaryColorHover: '#f48fb1',
+          primaryColorPressed: '#d81b60',
+          primaryColorSuppl: '#e91e63',
+          borderColor: '#4a2035',
+          dividerColor: '#4a2035',
+        },
+      }
+    case 'orange':
+      return {
+        common: {
+          primaryColor: '#f57c00',
+          primaryColorHover: '#ffb74d',
+          primaryColorPressed: '#e65100',
+          primaryColorSuppl: '#f57c00',
+          borderColor: '#4a3520',
+          dividerColor: '#4a3520',
+        },
+      }
+    default:
+      return null
+  }
+})
 
 onMounted(() => {
   const stored = localStorage.getItem('mdbs_settings')
@@ -28,7 +101,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <NConfigProvider :theme="theme" :data-theme="store.themeId">
+  <NConfigProvider :theme="darkTheme" :theme-overrides="themeOverrides">
     <NLoadingBarProvider>
       <NMessageProvider>
         <NDialogProvider>

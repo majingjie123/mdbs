@@ -310,7 +310,12 @@ function goShortcuts() {
     </footer>
 
     <!-- 全局对话框 -->
-    <ExportDialog v-model:visible="showExport" />
+    <ExportDialog
+      v-model:visible="showExport"
+      :conn-id="store.selectedNode.connId ?? undefined"
+      :db-name="store.selectedNode.dbName ?? undefined"
+      :table-name="store.selectedNode.tableName ?? undefined"
+    />
     <ImportDialog v-model:visible="showImport" />
     <BackupDialog v-model:visible="showBackup" />
     <SyncDialog v-model:visible="showSync" />

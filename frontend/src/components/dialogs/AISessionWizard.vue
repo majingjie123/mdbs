@@ -177,7 +177,7 @@ function close() { emit('update:show', false) }
 
       <!-- 步骤 1: 选连接 -->
       <div v-if="step === 1">
-        <p style="color:#999;margin-bottom:12px">选择要分析的数据库连接：</p>
+        <p style="color:var(--color-text-muted);margin-bottom:12px">选择要分析的数据库连接：</p>
         <n-spin :show="loading">
           <n-list class="select-list">
             <n-list-item v-for="conn in connections" :key="conn.id" class="select-item" @click="onConnSelect(conn.id)">
@@ -191,7 +191,7 @@ function close() { emit('update:show', false) }
 
       <!-- 步骤 2: 选数据库 -->
       <div v-if="step === 2">
-        <p style="color:#999;margin-bottom:12px">选择数据库：</p>
+        <p style="color:var(--color-text-muted);margin-bottom:12px">选择数据库：</p>
         <n-spin :show="loading">
           <n-list class="select-list">
             <n-list-item v-for="db in databases" :key="db" class="select-item" @click="onDbSelect(db)">
@@ -205,7 +205,7 @@ function close() { emit('update:show', false) }
       <!-- 步骤 3: 选表/视图 -->
       <div v-if="step === 3">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-          <p style="color:#999;margin:0">选择要作为上下文的表和视图（勾选后 AI 可了解其结构）：</p>
+          <p style="color:var(--color-text-muted);margin:0">选择要作为上下文的表和视图（勾选后 AI 可了解其结构）：</p>
           <n-space size="small">
             <n-badge :value="selectedTables.length + selectedViews.length" :max="99">
               <n-button size="tiny" type="primary" @click="step = 4">确认选择 ({{ selectedTables.length + selectedViews.length }})</n-button>
@@ -248,7 +248,7 @@ function close() { emit('update:show', false) }
 
       <!-- 步骤 4: 确认 -->
       <div v-if="step === 4">
-        <p style="color:#999;margin-bottom:12px">确认会话配置：</p>
+        <p style="color:var(--color-text-muted);margin-bottom:12px">确认会话配置：</p>
         <n-description bordered size="small">
           <n-description-item label="连接">{{ connections.find(c => c.id === selectedConnId)?.name || selectedConnId }}</n-description-item>
           <n-description-item label="数据库">{{ selectedDb }}</n-description-item>
@@ -269,18 +269,18 @@ function close() { emit('update:show', false) }
 <style scoped>
 .select-list { max-height: 300px; overflow-y: auto; }
 .select-item { cursor: pointer; }
-.select-item:hover { background: #2a2a2a; }
-.item-label { color: #e0e0e0; font-size: 14px; }
-.item-desc { color: #888; font-size: 12px; margin-top: 2px; }
+.select-item:hover { background: var(--bg-hover); }
+.item-label { color: var(--color-text); font-size: 14px; }
+.item-desc { color: var(--color-text-muted); font-size: 12px; margin-top: 2px; }
 
 .selection-area { max-height: 350px; overflow-y: auto; }
 .table-grid { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 0; }
 .table-chip {
   display: flex; align-items: center; gap: 4px;
   padding: 4px 8px; border-radius: 4px;
-  background: #2a2a2a; cursor: pointer; font-size: 12px;
+  background: var(--bg-hover); cursor: pointer; font-size: 12px;
   border: 1px solid transparent;
 }
-.table-chip:hover { background: #333; border-color: #555; }
-.table-chip.selected { background: #1a3a1a; border-color: #4caf50; }
+.table-chip:hover { background: var(--bg-hover); border-color: var(--color-border-light); }
+.table-chip.selected { background: rgba(76,175,80,0.15); border-color: var(--color-accent, #4caf50); }
 </style>

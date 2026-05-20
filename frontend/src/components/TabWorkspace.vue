@@ -152,7 +152,7 @@ function onTabMouseDown(e: MouseEvent, tab: TabItem) {
   gap: 6px;
   padding: 6px 12px;
   font-size: 12px;
-  color: #999999;
+  color: var(--color-text-muted);
   cursor: pointer;
   border-right: 1px solid var(--color-border);
   white-space: nowrap;
@@ -162,14 +162,14 @@ function onTabMouseDown(e: MouseEvent, tab: TabItem) {
 }
 
 .tab-item:hover {
-  background: #2d2d2d;
+  background: var(--bg-hover);
   color: var(--color-text-secondary);
 }
 
 .tab-item.active {
   background: var(--bg-app);
   color: #ffffff;
-  border-bottom: 2px solid #0078d4;
+  border-bottom: 2px solid var(--color-accent);
 }
 
 .tab-title {
@@ -186,19 +186,19 @@ function onTabMouseDown(e: MouseEvent, tab: TabItem) {
   height: 16px;
   border-radius: 3px;
   font-size: 10px;
-  color: #666;
+  color: var(--color-text-muted);
   flex-shrink: 0;
 }
 
 .tab-close:hover {
-  background: #3c3c3c;
+  background: var(--bg-hover);
   color: #ffffff;
 }
 
 .tab-content {
   flex: 1;
   overflow: hidden;
-  background: #1e1e1e;
+  background: var(--bg-app);
 }
 
 .tab-empty {
@@ -210,7 +210,7 @@ function onTabMouseDown(e: MouseEvent, tab: TabItem) {
 
 .empty-content {
   text-align: center;
-  color: #666;
+  color: var(--color-text-muted);
 }
 
 .empty-content p {
@@ -223,8 +223,8 @@ function onTabMouseDown(e: MouseEvent, tab: TabItem) {
   position: fixed;
   z-index: 9999;
   min-width: 140px;
-  background: #3c3f41;
-  border: 1px solid #555;
+  background: var(--bg-dropdown);
+  border: 1px solid var(--color-border-light);
   border-radius: 4px;
   padding: 4px 0;
   box-shadow: 0 4px 12px rgba(0,0,0,0.3);
@@ -233,12 +233,12 @@ function onTabMouseDown(e: MouseEvent, tab: TabItem) {
 .tab-context-menu .ctx-item {
   padding: 6px 16px;
   cursor: pointer;
-  color: #ccc;
+  color: var(--color-text-secondary);
   font-size: 12px;
 }
 
 .tab-context-menu .ctx-item:hover {
-  background: #4c4f51;
+  background: var(--bg-hover);
   color: #fff;
 }
 </style>

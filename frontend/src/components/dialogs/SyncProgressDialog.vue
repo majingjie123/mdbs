@@ -16,6 +16,7 @@ const statusText = ref('准备中...')
 const progress = ref({ table: '', index: 0, total: 0, percent: 0 })
 const logs = ref<{ message: string; level: string }[]>([])
 const error = ref('')
+const rowProgress = ref<{ table: string; inserted: number; total_est: number; percent: number } | null>(null)
 const logContainer = ref<HTMLElement | null>(null)
 
 let pollTimer: ReturnType<typeof setInterval> | null = null
@@ -50,6 +51,15 @@ async function pollProgress() {
       progress.value = data.progress
       if (data.progress.table) {
         statusText.value = `正在同步: ${data.progress.table}`
+      }
+    }
+
+    // 更新行级进度
+    if (data.row_progress) {
+      rowProgress.value = data.row_progress
+      const rp = data.row_progress
+      if (rp.inserted > 0 && rp.total_est > 0) {
+        statusText.value = `同步中: ${rp.table} (${rp.inserted.toLocaleString()}/${rp.total_est.toLocaleString()} 行)`
       }
     }
 
@@ -137,6 +147,20 @@ onUnmounted(() => {
       <!-- 状态 / 当前表名 -->
       <div class="current-table">{{ statusText }}</div>
 
+      <!-- 行级进度条（细粒度） -->
+      <div v-if="rowProgress && rowProgress.total_est > 0" class="row-progress">
+        <div class="row-bar-wrap">
+          <div
+            class="row-bar-fill"
+            :style="{ width: rowProgress.percent + '%' }"
+          />
+        </div>
+        <div class="row-bar-text">
+          行: {{ rowProgress.inserted.toLocaleString() }} / {{ rowProgress.total_est.toLocaleString() }}
+          ({{ rowProgress.percent }}%)
+        </div>
+      </div>
+
       <!-- 进度条 -->
       <n-progress
         type="line"
@@ -149,6 +173,9 @@ onUnmounted(() => {
       <!-- 进度文本 -->
       <div class="progress-text">
         进度: {{ progress.index }} / {{ progress.total }} ({{ progress.percent }}%)
+        <span v-if="rowProgress && rowProgress.inserted > 0" style="margin-left:12px;color:var(--color-accent)">
+          共 {{ rowProgress.inserted.toLocaleString() }} 行
+        </span>
       </div>
 
       <!-- 日志区域 -->
@@ -190,19 +217,19 @@ onUnmounted(() => {
 }
 
 .current-table {
-  color: #e0e0e0;
+  color: var(--color-text);
   font-size: 14px;
   font-weight: 600;
 }
 
 .progress-text {
-  color: #999;
+  color: var(--color-text-muted);
   font-size: 12px;
 }
 
 .log-area {
-  background: #1e1e1e;
-  border: 1px solid #3c3c3c;
+  background: var(--bg-app);
+  border: 1px solid var(--color-border);
   border-radius: 4px;
   padding: 8px;
   height: 250px;
@@ -213,7 +240,7 @@ onUnmounted(() => {
 }
 
 .log-info {
-  color: #cccccc;
+  color: var(--color-text);
 }
 
 .log-error {
@@ -225,7 +252,7 @@ onUnmounted(() => {
 }
 
 .log-debug {
-  color: #888888;
+  color: var(--color-text-muted);
 }
 
 .log-line pre {
@@ -235,7 +262,13 @@ onUnmounted(() => {
 }
 
 .log-placeholder {
-  color: #555;
+  color: var(--color-text-muted);
   font-style: italic;
 }
+
+/* ── 行级进度条样式 ── */
+.row-progress{display:flex;align-items:center;gap:10px}
+.row-bar-wrap{flex:1;height:8px;background:var(--bg-hover);border-radius:4px;overflow:hidden}
+.row-bar-fill{height:100%;background:linear-gradient(90deg,#4caf50,#8bc34a);border-radius:4px;transition:width .5s}
+.row-bar-text{font-size:11px;color:var(--color-text-secondary);white-space:nowrap}
 </style>

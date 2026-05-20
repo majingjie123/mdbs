@@ -1,6 +1,7 @@
 import PyInstaller.__main__
 
 name = "mdbs-server"
+
 params = [
     "scripts/run_backend.py",
     "--name=" + name,
@@ -8,6 +9,8 @@ params = [
     "--onedir",
     "--clean",
     "--icon=icon.ico",
+    "--paths=.",
+    "--paths=backend",
     "--add-data",
     "frontend/dist;frontend/dist",
     "--hidden-import", "uvicorn.protocols.http.auto",
@@ -21,11 +24,11 @@ params = [
     "--hidden-import", "pg8000.native",
     "--hidden-import", "sqlparse",
     "--hidden-import", "openpyxl",
-    "--hidden-import", "fpdf2",
+    "--hidden-import", "fpdf",
     "--hidden-import", "pymysql",
+    "--hidden-import", "webview",
     "--collect-all", "cryptography",
     "--collect-all", "paramiko",
-    "--collect-all", "sshtunnel",
     "--collect-all", "openpyxl",
     "--exclude-module", "PyQt6",
     "--exclude-module", "tkinter",

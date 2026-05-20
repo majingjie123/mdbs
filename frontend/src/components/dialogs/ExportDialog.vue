@@ -18,6 +18,28 @@ const message = useMessage()
 const loading = ref(false)
 const activeTab = ref('structure')
 
+// ── 连接选择 ──
+const connections = ref<any[]>([])
+const loadingConnections = ref(false)
+const selectedConnId = ref<number | null>(null)
+const databases = ref<string[]>([])
+const loadingDatabases = ref(false)
+const selectedDb = ref('')
+const dataTables = ref<{ label: string; value: string }[]>([])
+const selectedDataTable = ref('')
+const loadingTables = ref(false)
+
+const connOptions = computed(() => {
+  return (connections.value || []).map((c: any) => ({
+    label: `${c.name} (${c.db_type}@${c.host}:${c.port})`,
+    value: c.id,
+  }))
+})
+
+const dbOptions = computed(() => {
+  return (databases.value || []).map((db: string) => ({ label: db, value: db }))
+})
+
 // ── 导出格式 ──
 const structureFormat = ref('excel')
 const erFormat = ref('html')
@@ -43,11 +65,55 @@ const includeRelations = ref(true)
 const showComments = ref(true)
 const includeData = ref(true)
 
-// ── 加载表列表 ──
-async function loadTables() {
-  if (!props.connId) return
+// ── 加载连接列表 ──
+async function loadConnections() {
+  loadingConnections.value = true
   try {
-    const res: any = await api.listTables(props.connId, props.dbName)
+    const res: any = await api.listConnections()
+    if (res.success && res.data) {
+      connections.value = res.data
+      // 优先使用传入的 connId，否则用第一个连接
+      const initialId = props.connId ?? (res.data.length > 0 ? res.data[0].id : null)
+      if (initialId) {
+        selectedConnId.value = initialId
+        loadDatabases(initialId)
+      }
+    }
+  } catch {
+    connections.value = []
+  } finally {
+    loadingConnections.value = false
+  }
+}
+
+// ── 加载数据库列表 ──
+async function loadDatabases(connId: number) {
+  if (!connId) return
+  loadingDatabases.value = true
+  selectedDb.value = ''
+  databases.value = []
+  try {
+    const res: any = await api.listDatabases(connId)
+    if (res.success && res.data) {
+      databases.value = res.data
+      // 优先使用传入的 dbName
+      if (props.dbName && res.data.includes(props.dbName)) {
+        selectedDb.value = props.dbName
+      }
+    }
+  } catch {
+    databases.value = []
+  } finally {
+    loadingDatabases.value = false
+  }
+}
+
+// ── 加载表列表（用于表结构/ER图） ──
+async function loadTables() {
+  if (!selectedConnId.value) return
+  tableOptions.value = []
+  try {
+    const res: any = await api.listTables(selectedConnId.value, selectedDb.value || undefined)
     if (res.success && res.data) {
       tableOptions.value = res.data.map((t: any) => ({
         label: t.comment ? `${t.name} (${t.comment})` : t.name,
@@ -59,8 +125,55 @@ async function loadTables() {
   }
 }
 
+// ── 加载表列表（用于数据导出） ──
+async function loadDataTables() {
+  if (!selectedConnId.value) return
+  loadingTables.value = true
+  selectedDataTable.value = ''
+  dataTables.value = []
+  try {
+    const res: any = await api.listTables(selectedConnId.value, selectedDb.value || undefined)
+    if (res.success && res.data) {
+      dataTables.value = (res.data || []).map((t: any) => ({
+        label: t.comment ? `${t.name} (${t.comment})` : t.name,
+        value: t.name,
+      }))
+      if (props.tableName && (res.data || []).some((t: any) => t.name === props.tableName)) {
+        selectedDataTable.value = props.tableName
+      }
+    }
+  } catch {
+    dataTables.value = []
+  } finally {
+    loadingTables.value = false
+  }
+}
+
+watch(() => selectedConnId.value, (n) => {
+  if (n) {
+    selectedDb.value = ''
+    databases.value = []
+    selectedTables.value = []
+    tableOptions.value = []
+    loadDatabases(n)
+  }
+})
+
+watch(() => selectedDb.value, () => {
+  selectedTables.value = []
+  loadTables()
+})
+
 watch(() => props.visible, (v) => {
-  if (v) loadTables()
+  if (v) {
+    loadConnections()
+  }
+})
+
+watch(() => activeTab.value, (tab) => {
+  if (tab === 'data') {
+    loadDataTables()
+  }
 })
 
 // ── 文件下载 ──
@@ -79,6 +192,20 @@ async function downloadBlob(url: string, body: any, filename: string) {
     throw new Error(detail)
   }
   const blob = await res.blob()
+
+  // 在 pywebview 环境下使用原生保存对话框
+  const pywebview = (window as any).pywebview
+  if (pywebview?.api) {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const base64 = (reader.result as string).split(',')[1]
+      pywebview.api.save_file(filename, base64)
+    }
+    reader.readAsDataURL(blob)
+    return
+  }
+
+  // 浏览器环境退化方案
   const a = document.createElement('a')
   a.href = URL.createObjectURL(blob)
   a.download = filename
@@ -87,20 +214,24 @@ async function downloadBlob(url: string, body: any, filename: string) {
 }
 
 // ── 执行导出 ──
+const activeConnId = computed(() => selectedConnId.value ?? props.connId)
+
 async function doExport() {
-  if (!props.connId) {
+  const cid = activeConnId.value
+  if (!cid) {
     message.warning('请先选择连接')
     return
   }
 
   loading.value = true
   const baseUrl = '/api'
+  const db = selectedDb.value || props.dbName || null
 
   try {
     if (activeTab.value === 'structure') {
       const params = {
-        conn_id: props.connId,
-        database: props.dbName || null,
+        conn_id: cid,
+        database: db,
         format: structureFormat.value,
         tables: selectedTables.value,
         drop_table: includeDropTable.value,
@@ -112,8 +243,8 @@ async function doExport() {
       message.success('表结构导出成功')
     } else if (activeTab.value === 'er') {
       const params = {
-        conn_id: props.connId,
-        database: props.dbName || null,
+        conn_id: cid,
+        database: db,
         format: erFormat.value,
         include_relations: includeRelations.value,
         show_comments: showComments.value,
@@ -123,23 +254,24 @@ async function doExport() {
       await downloadBlob(`${baseUrl}/export/er`, params, `er_diagram.${ext}`)
       message.success('ER 图导出成功')
     } else if (activeTab.value === 'data') {
-      if (!props.tableName) {
+      const table = selectedDataTable.value || props.tableName
+      if (!table) {
         message.warning('请先选择要导出的表')
         return
       }
       const params = {
-        conn_id: props.connId,
-        database: props.dbName || null,
-        table: props.tableName,
+        conn_id: cid,
+        database: db,
+        table: table,
         format: dataFormat.value,
         include_data: includeData.value,
       }
       const ext = dataFormat.value === 'csv' ? 'csv' : 'xlsx'
-      await downloadBlob(`${baseUrl}/export/data`, params, `data_${props.tableName}.${ext}`)
+      await downloadBlob(`${baseUrl}/export/data`, params, `data_${table}.${ext}`)
       message.success('数据导出成功')
     } else if (activeTab.value === 'navicat') {
       // 导出所有连接（当前连接）
-      const params = { conn_ids: [props.connId] }
+      const params = { conn_ids: [cid] }
       await downloadBlob(`${baseUrl}/export/navicat`, params, `navicat_connections.ncx`)
       message.success('Navicat 配置导出成功')
     }
@@ -167,6 +299,27 @@ function close() {
     :bordered="true"
     :segmented="{ content: true }"
   >
+    <div style="margin-bottom: 16px; display: flex; gap: 12px">
+      <n-select
+        v-model:value="selectedConnId"
+        :options="connOptions"
+        filterable
+        placeholder="请选择连接"
+        :loading="loadingConnections"
+        style="flex: 1"
+        clearable
+      />
+      <n-select
+        v-model:value="selectedDb"
+        :options="dbOptions"
+        filterable
+        placeholder="选择数据库（可选）"
+        :loading="loadingDatabases"
+        :disabled="!selectedConnId"
+        style="flex: 1"
+        clearable
+      />
+    </div>
     <n-tabs v-model:value="activeTab" type="line">
       <!-- 导出表结构 -->
       <n-tab-pane name="structure" tab="导出表结构">
@@ -220,7 +373,15 @@ function close() {
             <n-select v-model:value="dataFormat" :options="dataFormatOptions" />
           </n-form-item>
           <n-form-item label="导出表">
-            <n-input :value="tableName || '（未选择）'" disabled />
+            <n-select
+              v-model:value="selectedDataTable"
+              :options="dataTables"
+              filterable
+              placeholder="选择要导出的表"
+              :loading="loadingTables"
+              :disabled="!selectedConnId"
+              clearable
+            />
           </n-form-item>
           <n-form-item label="包含数据">
             <n-switch v-model:value="includeData" />
