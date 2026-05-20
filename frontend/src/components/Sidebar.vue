@@ -922,7 +922,7 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
 .sidebar-header-actions {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 8px;
 }
 
 .sidebar-icon-btn {
@@ -976,7 +976,7 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
 }
 
 :global(.ctx-item) {
-  padding: 5px 16px;
+  padding: 8px 16px;
   cursor: pointer;
   color: var(--color-text-secondary);
   font-size: 12px;
