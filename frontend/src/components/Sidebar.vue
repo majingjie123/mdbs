@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, reactive, watch, h, onMounted, onUnmounted } from 'vue'
 import { useMessage, useDialog } from 'naive-ui'
 import { useAppStore } from '../stores/app'
 import { api } from '../api'
@@ -32,14 +32,53 @@ const selectedKey = ref<string | null>(null)
 const loadingSet = ref<Set<string>>(new Set())
 const tableCache = ref<Map<string, any[]>>(new Map())
 
-// 搜索
-const searchQuery = ref('')
+// 每个「表」文件夹自己的搜索词，key 为文件夹键（如 "connId/dbName/tables"）
+const searchPatterns = reactive(new Map<string, string>())
 
-// 自定义过滤：只匹配表节点（leaf table），不匹配数据库名/文件夹名
+// 触发 n-tree 重新过滤的版本号
+const filterVersion = ref(0)
+watch(
+  () => Array.from(searchPatterns.entries()),
+  () => { filterVersion.value++ },
+  { deep: true }
+)
+
+// 自定义过滤：只匹配表节点，按父级「表」文件夹的搜索词过滤
 function tableFilter(node: any, pattern: string) {
-  if (!pattern) return true
-  if (node.nodeType !== 'table') return false
-  return node.label.toLowerCase().includes(pattern.toLowerCase())
+  // 只对 table 叶子节点做过滤
+  if (node.isLeaf && node.nodeType === 'table') {
+    const key: string = node.key || ''
+    const idx = key.indexOf('/tables/')
+    if (idx === -1) return true
+    const folderKey = key.substring(0, idx + '/tables'.length)
+    const folderPattern = searchPatterns.get(folderKey)
+    if (!folderPattern) return true
+    return node.label.toLowerCase().includes(folderPattern.toLowerCase())
+  }
+  return true // 文件夹节点始终显示（n-tree 会自动隐藏无匹配子节点的父节点）
+}
+
+// 自定义渲染树节点标签：在「表」文件夹中嵌入搜索输入框
+function renderLabel(info: { option: TreeNode }) {
+  const node = info.option
+  if (!node.key || !node.key.endsWith('/tables')) {
+    return h('span', { style: 'font-size:13px' }, node.label)
+  }
+  // 是「表」文件夹：label + 行内搜索框
+  const pattern = searchPatterns.get(node.key) || ''
+  return h('div', { style: 'display:flex;align-items:center;gap:4px;width:100%' }, [
+    h('span', { style: 'flex-shrink:0;font-size:13px' }, node.label),
+    h('input', {
+      style: 'flex:1;min-width:50px;height:22px;font-size:12px;border:1px solid var(--color-border);border-radius:3px;outline:none;padding:0 6px;background:transparent;color:inherit',
+      placeholder: '搜索表...',
+      value: pattern,
+      onInput: (e: Event) => {
+        searchPatterns.set(node.key, (e.target as HTMLInputElement).value)
+      },
+      onClick: (e: Event) => e.stopPropagation(),
+      onKeydown: (e: Event) => e.stopPropagation(),
+    }),
+  ])
 }
 
 // 侧栏折叠
@@ -812,21 +851,6 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
       </div>
     </div>
 
-    <!-- 搜索框 -->
-    <div v-show="!collapsed" class="sidebar-search">
-      <n-input
-        v-model:value="searchQuery"
-        placeholder="搜索表名..."
-        size="tiny"
-        clearable
-        :style="{ margin: '4px 8px' }"
-      >
-        <template #prefix>
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/></svg>
-        </template>
-      </n-input>
-    </div>
-
     <!-- 树 -->
     <div v-show="!collapsed" class="tree-container">
       <n-tree
@@ -834,7 +858,8 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
         :default-expanded-keys="expandedKeys"
         :selected-keys="selectedKey ? [selectedKey] : []"
         :filter="tableFilter"
-        :pattern="searchQuery"
+        :pattern="String(filterVersion)"
+        :render-label="renderLabel"
         block-line
         :virtual-scroll="false"
         @update:selected-keys="onSelect"
