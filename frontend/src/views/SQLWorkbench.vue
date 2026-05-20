@@ -536,14 +536,6 @@ async function doSaveQuery(overwrite?: boolean) {
 
 <template>
   <div class="workbench" :class="{ dragging: isDragging, 'with-ai': showAiAssistant }">
-    <!-- AI 助手侧边栏 -->
-    <div v-if="showAiAssistant" class="ai-sidebar">
-      <AIAssistantPanel
-        :conn-id="props.connId"
-        :db-name="props.dbName"
-        :schema-name="props.schemaName"
-      />
-    </div>
     <!-- 主区域：SQL 编辑器 + 结果 -->
     <div class="main-area">
     <!-- SQL 编辑器 -->
@@ -747,6 +739,14 @@ async function doSaveQuery(overwrite?: boolean) {
       </template>
     </n-modal>
     </div><!-- /.main-area -->
+    <!-- AI 助手侧边栏 -->
+    <div v-if="showAiAssistant" class="ai-sidebar">
+      <AIAssistantPanel
+        :conn-id="props.connId"
+        :db-name="props.dbName"
+        :schema-name="props.schemaName"
+      />
+    </div>
   </div>
 </template>
 
@@ -769,7 +769,7 @@ async function doSaveQuery(overwrite?: boolean) {
   width: 320px;
   min-width: 280px;
   max-width: 400px;
-  border-right: 1px solid var(--color-border, #333);
+  border-left: 1px solid var(--color-border, #333);
   display: flex;
   flex-direction: column;
   overflow: hidden;

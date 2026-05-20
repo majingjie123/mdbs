@@ -728,7 +728,6 @@ function getMenuItems(nodeType: string = '') {
     case 'table':
       return [
         { label: '查看数据', action: 'view-data' },
-        { label: 'AI 助手', action: 'ai-chat' },
         { separator: true },
         { label: '查询表结构', action: 'view-structure' },
         { label: '查看 DDL', action: 'view-ddl' },
