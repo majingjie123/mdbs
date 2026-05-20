@@ -101,7 +101,6 @@
             <n-button size="tiny" quaternary @click="loadHistory">历史</n-button>
             <n-button size="tiny" quaternary @click="showExport=true" :disabled="!messages.length">导出</n-button>
             <n-button size="tiny" quaternary @click="clearChat" :disabled="!messages.length">清空</n-button>
-            <n-button size="tiny" quaternary @click="goAISettings">设置</n-button>
           </div>
         </div>
 
@@ -859,8 +858,6 @@ async function clearChat() {
     }
   })
 }
-
-function goAISettings() { store.openTab('ai-settings','AI 设置',{},true) }
 
 // 根据 props 自动加载上下文
 async function autoLoadContext() {

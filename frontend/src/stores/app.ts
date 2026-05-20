@@ -5,7 +5,7 @@ import { api } from '../api'
 export interface TabItem {
   id: string
   title: string
-  type: 'sql-workbench' | 'table-browser' | 'ai-chat' | 'ai-settings' | 'connection-list' | 'connection-detail' | 'view-manager' | 'function-manager' | 'settings'
+  type: 'sql-workbench' | 'table-browser' | 'ai-chat' | 'connection-list' | 'connection-detail' | 'view-manager' | 'function-manager' | 'settings'
   props: Record<string, any>
   closable: boolean
 }

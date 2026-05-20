@@ -138,7 +138,6 @@ function goBackupRestore() { closeMenus(); showBackup.value = true }
 function goSync() { closeMenus(); showSync.value = true }
 function goSyncHistory() { closeMenus(); showSync.value = true }
 function goSettings() { closeMenus(); store.openTab('settings', '设置', {}, true) }
-function goAISettings() { closeMenus(); store.openTab('ai-settings', 'AI 设置', {}, true) }
 function goAIChat() {
   closeMenus()
   store.openTab('ai-chat', 'AI 助手', {
@@ -212,8 +211,6 @@ function goShortcuts() {
             <div class="dropdown-item" @click="goExport">导出...</div>
             <div class="dropdown-separator"></div>
             <div class="dropdown-item" @click="goBackupRestore">备份 / 恢复...</div>
-            <div class="dropdown-separator"></div>
-            <div class="dropdown-item" @click="goAISettings">AI 设置</div>
             <div class="dropdown-separator"></div>
             <div class="dropdown-item" @click="confirmExit">退出</div>
           </div>

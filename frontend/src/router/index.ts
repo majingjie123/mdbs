@@ -89,12 +89,6 @@ const router = createRouter({
       }),
       meta: { title: 'AI 助手' },
     },
-    {
-      path: '/ai/settings',
-      name: 'ai-settings',
-      component: () => import('../views/AISettingsPage.vue'),
-      meta: { title: 'AI 设置' },
-    },
   ],
 })
 

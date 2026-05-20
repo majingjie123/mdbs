@@ -25,69 +25,12 @@ const currentTheme = ref('dark')
 const fontFamily = ref('Cascadia Code, Fira Code, Consolas, monospace')
 const fontSize = ref(13)
 
-// AI 设置
-const aiEnabled = ref(false)
-const aiProvider = ref('openai')
-const aiEndpoint = ref('')
-const aiApiKey = ref('')
-const aiModel = ref('gpt-4o-mini')
-const aiMaxTokens = ref(4096)
-
-const providerOptions = [
-  { label: 'OpenAI', value: 'openai' },
-  { label: 'Azure OpenAI', value: 'azure' },
-  { label: 'Ollama (本地)', value: 'ollama' },
-  { label: '兼容 OpenAI 的 API', value: 'custom' },
-]
-
-const modelOptions: Record<string, { label: string; value: string }[]> = {
-  openai: [
-    { label: 'GPT-4o', value: 'gpt-4o' },
-    { label: 'GPT-4o-mini', value: 'gpt-4o-mini' },
-    { label: 'GPT-4-turbo', value: 'gpt-4-turbo' },
-    { label: 'GPT-3.5-turbo', value: 'gpt-3.5-turbo' },
-    { label: 'o1-mini', value: 'o1-mini' },
-    { label: 'o3-mini', value: 'o3-mini' },
-    { label: 'DeepSeek V3', value: 'deepseek-chat' },
-    { label: 'DeepSeek R1', value: 'deepseek-reasoner' },
-  ],
-  azure: [
-    { label: 'GPT-4o', value: 'gpt-4o' },
-    { label: 'GPT-4-turbo', value: 'gpt-4-turbo' },
-  ],
-  ollama: [
-    { label: 'Llama 3', value: 'llama3' },
-    { label: 'Qwen 2.5', value: 'qwen2.5' },
-    { label: 'DeepSeek', value: 'deepseek' },
-    { label: 'Mistral', value: 'mistral' },
-    { label: '自定义', value: 'custom' },
-  ],
-  custom: [
-    { label: '自定义模型', value: 'custom' },
-  ],
-}
-
-const currentModels = ref(modelOptions[aiProvider.value] || modelOptions.custom)
-
-function onProviderChange(provider: string) {
-  currentModels.value = modelOptions[provider] || modelOptions.custom
-  aiModel.value = currentModels.value[0]?.value || 'custom'
-}
-
 // 保存设置
 function saveSettings() {
   const settings = {
     theme: currentTheme.value,
     fontFamily: fontFamily.value,
     fontSize: fontSize.value,
-    ai: {
-      enabled: aiEnabled.value,
-      provider: aiProvider.value,
-      endpoint: aiEndpoint.value,
-      apiKey: aiApiKey.value,
-      model: aiModel.value,
-      maxTokens: aiMaxTokens.value,
-    }
   }
   localStorage.setItem('mdbs_settings', JSON.stringify(settings))
   // 立即生效 — 设置 data-theme 属性 & 更新 store
@@ -108,15 +51,6 @@ function loadSettings() {
     if (s.theme) currentTheme.value = s.theme
     if (s.fontFamily) fontFamily.value = s.fontFamily
     if (s.fontSize) fontSize.value = s.fontSize
-    if (s.ai) {
-      aiEnabled.value = s.ai.enabled ?? false
-      aiProvider.value = s.ai.provider || 'openai'
-      aiEndpoint.value = s.ai.endpoint || ''
-      aiApiKey.value = s.ai.apiKey || ''
-      aiModel.value = s.ai.model || 'gpt-4o-mini'
-      aiMaxTokens.value = s.ai.maxTokens || 4096
-      onProviderChange(aiProvider.value)
-    }
   } catch {}
 }
 
@@ -182,51 +116,6 @@ onMounted(loadSettings)
               <div class="preview-status">状态栏</div>
             </div>
           </n-form-item>
-        </n-form>
-      </n-tab-pane>
-
-      <!-- AI 设置 -->
-      <n-tab-pane name="ai" tab="AI 助手">
-        <n-form label-placement="left" label-width="140" style="max-width: 500px">
-          <n-form-item label="启用 AI 助手">
-            <n-switch v-model:value="aiEnabled" />
-          </n-form-item>
-
-          <template v-if="aiEnabled">
-            <n-form-item label="API 提供商">
-              <n-select
-                v-model:value="aiProvider"
-                :options="providerOptions"
-                @update:value="onProviderChange"
-              />
-            </n-form-item>
-
-            <n-form-item v-if="aiProvider === 'custom' || aiProvider === 'ollama'" label="API 地址">
-              <n-input v-model:value="aiEndpoint" placeholder="https://api.openai.com/v1" />
-            </n-form-item>
-
-            <n-form-item v-if="aiProvider !== 'ollama'" label="API Key">
-              <n-input
-                v-model:value="aiApiKey"
-                type="password"
-                show-password-on="click"
-                placeholder="sk-..."
-              />
-            </n-form-item>
-
-            <n-form-item label="模型">
-              <n-select v-model:value="aiModel" :options="currentModels" />
-            </n-form-item>
-
-            <n-form-item label="最大 Token">
-              <n-input-number v-model:value="aiMaxTokens" :min="512" :max="32768" :step="512" />
-            </n-form-item>
-
-            <n-alert type="info" closable>
-              AI 助手可以帮助您生成 SQL、解释查询结果、优化查询性能等。
-              API Key 仅存储在本地，不会上传到服务器。
-            </n-alert>
-          </template>
         </n-form>
       </n-tab-pane>
 

@@ -15,7 +15,6 @@ const componentMap: Record<string, any> = {
   'ai-chat': markRaw(defineAsyncComponent(() => import('../views/AIChat.vue'))),
   'connection-list': markRaw(defineAsyncComponent(() => import('../views/ConnectionList.vue'))),
   'connection-detail': markRaw(defineAsyncComponent(() => import('../views/ConnectionDetail.vue'))),
-  'ai-settings': markRaw(defineAsyncComponent(() => import('../views/AISettingsPage.vue'))),
   'view-manager': markRaw(defineAsyncComponent(() => import('../views/ViewManager.vue'))),
   'function-manager': markRaw(defineAsyncComponent(() => import('../views/FunctionManager.vue'))),
   'settings': markRaw(defineAsyncComponent(() => import('../views/SettingsPage.vue'))),
