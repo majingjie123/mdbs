@@ -298,6 +298,11 @@ function commitEdit(rowIdx: number, colIdx: number) {
   editCell.value = null
 }
 
+// ── 取消所有修改 ──
+function cancelEdits() {
+  modifiedCells.value.clear()
+}
+
 // ── 保存修改到数据库 ──
 function escapeSql(val: any): string {
   if (val === null || val === undefined) return 'NULL'
@@ -406,6 +411,15 @@ async function saveEdits() {
     const res: any = await api.executeBatch(props.connId, sqls, props.dbName || undefined)
     if (res.success) {
       message.success(`成功保存 ${sqls.length} 行修改`)
+      // 将新值写回 allRows，使界面立即反映修改
+      for (const [absRow, modCols] of rowMap) {
+        const rowData = allRows.value[absRow]
+        if (rowData) {
+          for (const [ci, newVal] of modCols) {
+            rowData[ci] = newVal
+          }
+        }
+      }
       modifiedCells.value.clear()
     } else {
       // 在错误消息中附带第一条 SQL 的参数信息，帮助定位脏数据
@@ -646,6 +660,13 @@ async function doSaveQuery(overwrite?: boolean) {
             @click="saveEdits"
           >
             💾 保存修改 ({{ modifiedCells.size }})
+          </n-button>
+          <n-button
+            v-if="modifiedCells.size > 0"
+            size="tiny"
+            @click="cancelEdits"
+          >
+            取消修改
           </n-button>
           <n-button
             size="tiny"
