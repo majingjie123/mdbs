@@ -36,6 +36,8 @@ const searchPatterns = reactive(new Map<string, string>())
 
 // 触发 n-tree 重新过滤的版本号
 const filterVersion = ref(0)
+// 搜索防抖
+let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null
 watch(
   () => Array.from(searchPatterns.entries()),
   () => { filterVersion.value++ },
@@ -72,7 +74,11 @@ function renderLabel(info: { option: TreeNode }) {
       placeholder: '搜索表...',
       value: pattern,
       onInput: (e: Event) => {
-        searchPatterns.set(node.key, (e.target as HTMLInputElement).value)
+        const value = (e.target as HTMLInputElement).value
+        if (searchDebounceTimer !== null) clearTimeout(searchDebounceTimer)
+        searchDebounceTimer = window.setTimeout(() => {
+          searchPatterns.set(node.key, value)
+        }, 150)
       },
       onClick: (e: Event) => e.stopPropagation(),
       onKeydown: (e: Event) => e.stopPropagation(),
@@ -850,7 +856,7 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
         :pattern="String(filterVersion)"
         :render-label="renderLabel"
         block-line
-        :virtual-scroll="false"
+        :virtual-scroll="true"
         @update:selected-keys="onSelect"
         @update:expanded-keys="onUpdateExpandedKeys"
         :node-props="handleNodeProps"

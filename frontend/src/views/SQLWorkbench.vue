@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, h, shallowRef, markRaw, nextTick, onMounted, onUnmounted } from 'vue'
+import { ref, computed, h, shallowRef, markRaw, nextTick, onMounted, onUnmounted, reactive, watch } from 'vue'
 import { api, ExecResult } from '../api'
 import { useMessage } from 'naive-ui'
 import SqlEditor from '../components/SqlEditor.vue'

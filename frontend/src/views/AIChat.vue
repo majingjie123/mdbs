@@ -234,7 +234,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, nextTick, computed, onUnmounted } from 'vue'
+import { ref, shallowRef, onMounted, nextTick, computed, onUnmounted, reactive, watch } from 'vue'
 import { useMessage, useDialog } from 'naive-ui'
 import { api, ExecResult } from '../api'
 import { useAppStore } from '../stores/app'
@@ -310,7 +310,7 @@ onUnmounted(() => {
 // ── SQL 执行 ──
 const page = ref(1)
 const pageSize = ref(1000)
-const allRows = ref<any[][]>([])
+const allRows = shallowRef<any[][]>([])
 // 后端已分页，displayRows 即返回结果
 const displayRows = computed(() => allRows.value)
 const totalPages = computed(() => Math.max(1, Math.ceil(totalRows.value / pageSize.value)))
