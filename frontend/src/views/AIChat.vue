@@ -51,7 +51,10 @@
           <div class="result-body">
             <n-spin :show="running">
               <div v-if="!result" class="result-empty">输入 SQL 并点击执行</div>
-              <div v-else-if="result.error" class="result-error">{{ result.error }}</div>
+              <div v-else-if="result.error" class="result-error">
+                <span>{{ result.error }}</span>
+                <span class="copy-error-btn" @click="copyMsg(result.error)" title="复制错误信息">📋</span>
+              </div>
               <div v-else-if="!result.is_query && result.affected !== undefined" class="result-affected">影响行数: {{ result.affected }}</div>
               <template v-else-if="result.columns && result.columns.length">
                 <div class="result-table-wrap">
@@ -1062,7 +1065,9 @@ onMounted(async () => {
 .result-body{flex:1;overflow:auto;padding:4px 8px;min-height:0}
 .result-table-wrap{max-height:calc(100% - 40px);overflow:auto}
 .result-empty,.result-error,.result-affected{padding:20px;text-align:center;color:var(--color-text-muted);font-size:13px}
-.result-error{color:#e53935}
+.result-error{color:#e53935;user-select:text;cursor:text;position:relative}
+.result-error .copy-error-btn{position:absolute;top:8px;right:8px;cursor:pointer;opacity:0.6;font-size:14px}
+.result-error .copy-error-btn:hover{opacity:1}
 .result-affected{color:var(--color-text-secondary)}
 .result-pagination{display:flex;justify-content:flex-end;padding:6px 0}
 .split-bar{height:4px;background:var(--bg-hover);cursor:ns-resize;flex-shrink:0;transition:background .2s;border-top:1px solid var(--color-border);border-bottom:1px solid var(--color-border)}

@@ -669,6 +669,12 @@ async function doSaveQuery(overwrite?: boolean) {
     savingQuery.value = false
   }
 }
+
+function copyError() {
+  if (error.value) {
+    navigator.clipboard.writeText(error.value).then(()=>message.success('已复制')).catch(()=>message.error('复制失败'))
+  }
+}
 </script>
 
 <template>
@@ -755,8 +761,9 @@ async function doSaveQuery(overwrite?: boolean) {
     <n-alert v-if="error" type="error" closable class="error-alert">
       <template #header>
         <span style="font-size:12px">执行错误 ({{ queryTime }}ms)</span>
+        <n-button text size="tiny" style="margin-left:8px" @click="copyError" title="复制错误信息">📋</n-button>
       </template>
-      {{ error }}
+      <span class="error-text">{{ error }}</span>
     </n-alert>
 
     <!-- 结果集 -->
@@ -1062,6 +1069,13 @@ async function doSaveQuery(overwrite?: boolean) {
 .error-alert {
   margin: 4px 0;
   flex-shrink: 0;
+}
+.error-text {
+  user-select: text;
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-all;
 }
 
 .result-panel {
