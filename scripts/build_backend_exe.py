@@ -8,6 +8,7 @@ params = [
     "--noconsole",
     "--onedir",
     "--clean",
+    "--noconfirm",
     "--icon=icon.ico",
     "--paths=.",
     "--paths=backend",
