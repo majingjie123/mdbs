@@ -3,6 +3,16 @@ import re
 import os
 from core.ssh_manager import SSHTunnelManager
 
+class ExecResultTuple(tuple):
+    """支持 4 元素解包并附带 truncated、total、results 等多属性的特殊元组类，保障向下兼容"""
+    def __new__(cls, cols, rows, affected, is_query, truncated, total, results=None):
+        return super().__new__(cls, (cols, rows, affected, is_query))
+
+    def __init__(self, cols, rows, affected, is_query, truncated, total, results=None):
+        self.truncated = truncated
+        self.total = total
+        self.results = results or []
+
 class DBOperations:
     def __init__(self):
         self.ssh_manager = SSHTunnelManager()
@@ -898,25 +908,46 @@ class DBOperations:
         _flush()
         return result
 
+    @staticmethod
+    def _clean_value(val):
+        """清洗单个单元格数据，确保可安全 JSON 序列化"""
+        if val is None:
+            return None
+        import decimal
+        import datetime
+        import uuid
+        if isinstance(val, decimal.Decimal):
+            return float(val)
+        if isinstance(val, (datetime.datetime, datetime.date)):
+            return val.isoformat()
+        if isinstance(val, uuid.UUID):
+            return str(val)
+        if isinstance(val, bytes):
+            try:
+                return val.decode('utf-8')
+            except Exception:
+                return val.hex()
+        return val
+
     def execute_sql(self, conn_data, sql, database=None, params=None, cancel_event=None, schema=None, progress_callback=None, limit=1000, offset=0):
-        """执行任意 SQL 并返回 (columns, rows, affected_count, is_query, truncated, total)"""
+        """执行任意 SQL 并返回 ExecResultTuple(columns, rows, total_affected, is_query, truncated, total, results)"""
         if cancel_event and cancel_event.is_set():
             raise Exception("操作已取消")
-
+            
         # 预处理：拆分多条语句
         statements = self.split_sql_statements(sql, progress_callback=progress_callback)
         if not statements:
-            return [], [], 0, False, False, 0
+            return ExecResultTuple([], [], 0, False, False, 0, results=[])
             
         db_type = conn_data.get('db_type', 'MySQL')
         conn = self.get_connection(conn_data, database=database)
+        
+        results = []
         try:
             # PostgreSQL: 在执行前设置 search_path
             if db_type != "MySQL" and schema:
                 conn.run(f'SET search_path TO "{schema}"')
             
-            total_affected = 0
-            last_query_res = None
             total_stmts = len(statements)
             
             if db_type == "MySQL":
@@ -951,14 +982,34 @@ class DBOperations:
                                     rows = [[row.get(col) for col in columns] for row in raw_rows]
                                 else:
                                     rows = raw_rows
+                                
+                                cleaned_rows = [[self._clean_value(cell) for cell in row] for row in rows]
+                                total = len(cleaned_rows)
                                 truncated = False
-                                total = len(rows)
                                 if limit > 0:
-                                    # 服务端分页
-                                    rows = rows[offset:offset + limit]
-                                last_query_res = (columns, rows, total, True, truncated, total)
+                                    paginated_rows = cleaned_rows[offset:offset + limit]
+                                    truncated = len(cleaned_rows) > len(paginated_rows)
+                                else:
+                                    paginated_rows = cleaned_rows
+                                
+                                results.append({
+                                    "columns": columns,
+                                    "rows": paginated_rows,
+                                    "affected": len(paginated_rows),
+                                    "is_query": True,
+                                    "truncated": truncated,
+                                    "total": total
+                                })
                             else:
-                                total_affected += cursor.rowcount
+                                affected = cursor.rowcount if cursor.rowcount != -1 else 0
+                                results.append({
+                                    "columns": [],
+                                    "rows": [],
+                                    "affected": affected,
+                                    "is_query": False,
+                                    "truncated": False,
+                                    "total": 0
+                                })
                         
                         conn.commit()
                     except Exception:
@@ -966,21 +1017,17 @@ class DBOperations:
                         raise
                     finally:
                         cursor.execute("SET autocommit=1")
-                    
-                    if last_query_res:
-                        return last_query_res
-                    return ([], [], total_affected, False, False, 0)
             else:
                 # PostgreSQL (pg8000.native)
                 try:
                     conn.run("BEGIN")
                     # 同步极致动态步长逻辑
                     update_step = max(100, min(5000, total_stmts // 200))
-
+                    
                     for i, stmt in enumerate(statements):
                         if cancel_event and cancel_event.is_set():
                             raise Exception(f"批处理执行到第 {i+1} 条语句时被取消")
-
+                        
                         if progress_callback and (i % update_step == 0 or i == total_stmts - 1):
                             pct = int(((i+1) / total_stmts) * 100)
                             progress_callback(pct, f"正在执行第 {i+1}/{total_stmts} 条语句...")
@@ -992,27 +1039,67 @@ class DBOperations:
                                 rows = conn.run(stmt, *params)
                         else:
                             rows = conn.run(stmt)
-
+                        
                         if hasattr(conn, 'columns') and conn.columns:
                             columns = [col['name'] for col in conn.columns]
-                            # DictCursor 返回 dict_rows，转换为 list_rows
                             if rows and isinstance(rows[0], dict):
                                 rows = [[row.get(col['name']) for col in conn.columns] for row in rows]
+                            
+                            cleaned_rows = [[self._clean_value(cell) for cell in row] for row in rows]
+                            total = len(cleaned_rows)
                             truncated = False
-                            total = len(rows)
                             if limit > 0:
-                                rows = rows[offset:offset + limit]
-                            last_query_res = (columns, rows, total, True, truncated, total)
+                                paginated_rows = cleaned_rows[offset:offset + limit]
+                                truncated = len(cleaned_rows) > len(paginated_rows)
+                            else:
+                                paginated_rows = cleaned_rows
+                                
+                            results.append({
+                                "columns": columns,
+                                "rows": paginated_rows,
+                                "affected": len(paginated_rows),
+                                "is_query": True,
+                                "truncated": truncated,
+                                "total": total
+                            })
+                        else:
+                            affected = len(rows) if rows else 0
+                            results.append({
+                                "columns": [],
+                                "rows": [],
+                                "affected": affected,
+                                "is_query": False,
+                                "truncated": False,
+                                "total": 0
+                            })
                     conn.run("COMMIT")
-
-                    if last_query_res:
-                        return last_query_res
-                    return ([], [], total_affected, False, False, 0)
                 except Exception:
                     conn.run("ROLLBACK")
                     raise
         finally:
             if hasattr(conn, 'close'): conn.close()
+
+        # 汇总最终结果，供向下兼容的外层解包
+        total_affected = sum(r['affected'] for r in results if not r['is_query'])
+        
+        last_query = None
+        for r in reversed(results):
+            if r['is_query']:
+                last_query = r
+                break
+                
+        if last_query:
+            return ExecResultTuple(
+                last_query['columns'],
+                last_query['rows'],
+                total_affected,
+                True,
+                last_query['truncated'],
+                last_query['total'],
+                results=results
+            )
+            
+        return ExecResultTuple([], [], total_affected, False, False, 0, results=results)
 
     def execute_batch_sql(self, conn_data, sql_list, database=None, cancel_event=None, schema=None):
         """
