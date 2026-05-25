@@ -44,6 +44,22 @@ watch(
   { deep: true }
 )
 
+// 连接列表变化时自动重建侧边栏树
+watch(
+  () => store.connections,
+  () => {
+    treeData.value = store.connections.map((c: any) => ({
+      label: c.name,
+      key: `conn-${c.id}`,
+      isLeaf: false,
+      nodeType: 'connection',
+      connId: c.id,
+      children: [],
+    }))
+  },
+  { deep: true }
+)
+
 // 自定义过滤：只匹配表节点，按父级「表」文件夹的搜索词过滤
 function tableFilter(node: any, pattern: string) {
   // 只对 table 叶子节点做过滤

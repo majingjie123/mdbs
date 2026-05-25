@@ -294,7 +294,7 @@ async function send() {
 
   const msgs: {role:string;content:string}[] = []
   if (contextText.value) {
-    msgs.push({ role: 'system', content: `你是数据库助手。当前数据库结构：\n\n${contextText.value}\n\n根据结构回答。` })
+msgs.push({ role: 'system', content: `你是数据库助手。当前数据库结构：\n\n${contextText.value}\n\n根据结构生成正确、可执行的 SQL 语句。注意：SQL 关键字（如 FROM、LEFT JOIN、ORDER BY、WHERE 等）前面必须加空格，不能紧跟前一个单词或标识符。` })
   }
   for (const m of messages.value.slice(0, -1)) msgs.push({ role: m.role, content: m.content })
 
@@ -391,11 +391,16 @@ function escapeHTML(s: string): string {
   return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
 }
 
+function normalizeSQL(s: string): string {
+  const kw = '(?:FROM|LEFT\\s+JOIN|RIGHT\\s+JOIN|INNER\\s+JOIN|OUTER\\s+JOIN|CROSS\\s+JOIN|JOIN|WHERE|ORDER\\s+BY|GROUP\\s+BY|HAVING|LIMIT|OFFSET|UNION(?:\\s+ALL)?|VALUES|SET|INTO|ON|AND|OR|LIKE|BETWEEN|EXISTS|IN|ASC|DESC)'
+  return s.replace(new RegExp('([^\\s,;(\\])(\\s*)(' + kw + ')\\b', 'gi'), '$1 $3')
+}
+
 function renderMD(text: string): string {
   if (!text) return ''
   let html = escapeHTML(text)
   html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => {
-    const trimmed = code.trim()
+    const trimmed = normalizeSQL(code.trim())
     const escaped = escapeHTML(trimmed)
     return `<div class="code-wrap"><span class="code-lang">${lang||'code'}</span><button class="code-copy-btn" data-copy-code="${escaped}" title="复制代码">📋</button><pre class="code-block"><code>${escaped}</code></pre></div>`
   })

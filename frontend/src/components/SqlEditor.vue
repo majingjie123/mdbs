@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { Codemirror } from 'vue-codemirror'
 import { keymap } from '@codemirror/view'
 import { sql, MySQL } from '@codemirror/lang-sql'
@@ -105,14 +105,25 @@ function sqlCompletions(context: CompletionContext) {
   return { from: word.from, options }
 }
 
+// ── 原生键盘监听（兜底，应对 CodeMirror 在某些环境 Mod-Enter 失效的情况）──
+function onNativeKeydown(e: KeyboardEvent) {
+  const isExec = (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) || e.key === 'F5'
+  if (isExec) {
+    e.preventDefault()
+    emit('execute')
+  }
+}
+
+onMounted(() => window.addEventListener('keydown', onNativeKeydown))
+onUnmounted(() => window.removeEventListener('keydown', onNativeKeydown))
+
 // 快捷键：Ctrl+Enter / F5 执行 + 搜索（数组恒稳定，避免重初始化 CodeMirror）
+// 注：由 onNativeKeydown 处理执行快捷键，CodeMirror keymap 中不重复注册以免双重执行
 const extensions = [
   sql({ dialect: MySQL }),
   oneDark,
   autocompletion({ override: [sqlCompletions] }),
   keymap.of([
-    { key: 'Mod-Enter', run: () => { emit('execute'); return true } },
-    { key: 'F5', run: () => { emit('execute'); return true } },
     ...searchKeymap,
     indentWithTab,
     ...defaultKeymap,
