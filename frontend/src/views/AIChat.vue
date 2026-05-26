@@ -92,6 +92,7 @@
         <div class="bar">
           <div class="bar-left">
             <n-select v-model:value="activeConfigId" :options="configOptions" placeholder="AI 配置" style="width:150px" clearable size="small" />
+            <n-tag v-if="activeConfig" size="tiny" type="info" style="max-width:280px;overflow:hidden;text-overflow:ellipsis" :title="connStrDetail">{{ connStrBrief }}</n-tag>
             <n-button size="tiny" @click="openTableSelect" :loading="contextLoading" :disabled="!connId">加载上下文</n-button>
             <span v-if="contextText" class="ctx-dot active" title="已加载上下文"></span>
             <span v-else class="ctx-dot" title="无上下文"></span>
@@ -485,6 +486,21 @@ function closeSession(id: number) {
 const configs = ref<any[]>([])
 const activeConfigId = ref<number|null>(null)
 const configOptions = ref<{label:string;value:number}[]>([])
+const activeConfig = computed(() => configs.value.find(c => c.id === activeConfigId.value) || null)
+// AI 连接串显示
+const connStrBrief = computed(() => {
+  const c = activeConfig.value
+  if (!c) return ''
+  const url = c.base_url ? c.base_url.replace(/^https?:\/\//, '').replace(/\/v1\/?$/, '').replace(/\/$/, '') : '?'
+  return `${url} › ${c.model}`
+})
+const connStrDetail = computed(() => {
+  const c = activeConfig.value
+  if (!c) return ''
+  let key = c.api_key || ''
+  if (key.length > 8) key = key.slice(0, 4) + '…' + key.slice(-4)
+  return `协议: ${c.protocol}\n地址: ${c.base_url}\n模型: ${c.model}\n密钥: ${key}`
+})
 async function loadConfigs() {
   try {
     const r:any = await api.aiListConfigs()
