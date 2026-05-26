@@ -32,10 +32,15 @@ def list_connections(storage: DBStorage = Depends(get_db_storage)):
 
 @router.get("/{conn_id}")
 def get_connection(conn_id: int, storage: DBStorage = Depends(get_db_storage)):
-    """获取单个连接的完整信息（含解密密码）"""
+    """获取单个连接的完整信息（含敏感字字段脱敏）"""
     conn = storage.get_connection(conn_id)
     if not conn:
         return {"success": False, "message": "连接不存在"}
+    
+    # 卫语句处理：脱敏敏感字段，防止向前端暴露明文
+    for field in ["password", "ssh_password", "ssh_key_phrase"]:
+        if conn.get(field):
+            conn[field] = "******"
     return {"success": True, "data": conn}
 
 
@@ -52,11 +57,23 @@ def create_connection(req: ConnectionCreate, storage: DBStorage = Depends(get_db
 
 @router.put("/{conn_id}")
 def update_connection(conn_id: int, req: ConnectionUpdate, storage: DBStorage = Depends(get_db_storage)):
-    """更新连接"""
+    """更新连接（含脱敏字段保护逻辑）"""
     try:
         # 配置可能变化，先释放旧的 SSH 隧道
         SSHTunnelManager().stop_tunnel(conn_id)
+        
+        # 卫语句：校验连接是否存在
+        old_conn = storage.get_connection(conn_id)
+        if not old_conn:
+            return {"success": False, "message": "连接不存在"}
+            
         data = req.data.model_dump()
+        
+        # 脱敏检测与覆盖还原：如果提交的数据是 ******，则还原为库中已存的旧数据
+        for field in ["password", "ssh_password", "ssh_key_phrase"]:
+            if data.get(field) == "******":
+                data[field] = old_conn.get(field)
+                
         storage.update_connection(conn_id, data)
         return {"success": True, "message": "更新成功"}
     except Exception as e:

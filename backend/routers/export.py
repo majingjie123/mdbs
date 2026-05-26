@@ -139,83 +139,193 @@ def export_navicat(body: ExportNavicatRequest, storage: DBStorage = Depends(get_
     return FileResponse(file_path, filename=os.path.basename(file_path))
 
 
+def clean_old_temp_files(days_limit=7, size_limit_mb=200):
+    """自动清理旧的同步日志和导出临时文件"""
+    import time
+    from pathlib import Path
+    
+    base_dir = Path(EXPORT_DIR).parent  # 获取 sync_logs 目录
+    if not base_dir.exists():
+        return
+        
+    now = time.time()
+    cutoff = now - (days_limit * 86400)
+    
+    all_files = []
+    # 1. 递归扫描并按时间清理
+    for p in base_dir.glob("**/*"):
+        if not p.is_file():
+            continue
+        if p.stat().st_mtime < cutoff:
+            try:
+                p.unlink()
+            except:
+                pass
+        else:
+            all_files.append(p)
+            
+    # 2. 按总体积限制清理
+    total_size = sum(f.stat().st_size for f in all_files)
+    if total_size > size_limit_mb * 1024 * 1024:
+        all_files.sort(key=lambda x: x.stat().st_mtime)
+        accumulated_size = total_size
+        limit = size_limit_mb * 1024 * 1024
+        for f in all_files:
+            if accumulated_size <= limit:
+                break
+            try:
+                f_size = f.stat().st_size
+                f.unlink()
+                accumulated_size -= f_size
+            except:
+                pass
+
+
 @router.post("/data")
 def export_data(body: ExportDataRequest, storage: DBStorage = Depends(get_db_storage), ops: DBOperations = Depends(get_db_ops)):
-    """导出表数据"""
+    """导出表数据（流式分批导出，防止内存溢出）"""
     conn_data = _get_conn_data(body.conn_id, storage)
     db_type = conn_data.get("db_type", "MySQL")
     quote = "`" if db_type == "MySQL" else '"'
-
     sql = f"SELECT * FROM {quote}{body.table}{quote}"
-    try:
-        cols, rows, affected, is_query = ops.execute_sql(
-            conn_data, sql, database=body.database or None
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"查询数据失败: {e}")
 
+    # 1. 建立底层物理连接
+    conn = ops.get_connection(conn_data, database=body.database or None)
+    cols = []
+
+    # 2. 提取表头字段名（卫语句防御）
+    try:
+        if db_type == "MySQL":
+            with conn.cursor() as cursor:
+                cursor.execute(f"SELECT * FROM `{body.table}` LIMIT 0")
+                cols = [col[0] for col in cursor.description]
+        else:
+            conn.run("BEGIN")
+            conn.run(f'DECLARE cols_cursor CURSOR FOR SELECT * FROM "{body.table}" LIMIT 0')
+            conn.run('FETCH 0 FROM cols_cursor')
+            cols = [col['name'] for col in conn.columns] if hasattr(conn, 'columns') else []
+            conn.run('CLOSE cols_cursor')
+            conn.run('COMMIT')
+    except Exception as e:
+        if db_type != "MySQL":
+            try: conn.run("ROLLBACK")
+            except: pass
+        if hasattr(conn, 'close'): conn.close()
+        raise HTTPException(status_code=500, detail=f"获取表头结构失败: {e}")
+
+    # 3. 开始写出到本地文件
     _ensure_export_dir()
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     fmt = body.format.lower()
+    batch_size = 1000
 
     if fmt == "csv":
         file_path = os.path.join(EXPORT_DIR, f"data_{body.table}_{ts}.csv")
-        with open(file_path, "w", encoding="utf-8-sig", newline="") as f:
-            if cols:
-                f.write(",".join(f'"{c}"' for c in cols) + "\n")
-            for row in rows:
-                f.write(",".join(
-                    f'"{str(v).replace(chr(34), chr(34)+chr(34))}"' if v is not None else ""
-                    for v in row
-                ) + "\n")
+        try:
+            with open(file_path, "w", encoding="utf-8-sig", newline="") as f:
+                import csv
+                writer = csv.writer(f, quoting=csv.QUOTE_ALL)
+                if cols:
+                    writer.writerow(cols)
+
+                # 分批拉取并增量写入 CSV
+                if db_type == "MySQL":
+                    import pymysql.cursors
+                    with conn.cursor(pymysql.cursors.SSCursor) as cursor:
+                        cursor.execute(sql)
+                        while True:
+                            rows = cursor.fetchmany(batch_size)
+                            if not rows:
+                                break
+                            writer.writerows(rows)
+                else:
+                    conn.run("BEGIN")
+                    conn.run(f'DECLARE export_cursor CURSOR FOR SELECT * FROM "{body.table}"')
+                    while True:
+                        rows = conn.run(f"FETCH {batch_size} FROM export_cursor")
+                        if not rows or len(rows) == 0:
+                            break
+                        writer.writerows(rows)
+                    conn.run("CLOSE export_cursor")
+                    conn.run("COMMIT")
+        except Exception as e:
+            if db_type != "MySQL":
+                try: conn.run("ROLLBACK")
+                except: pass
+            raise HTTPException(status_code=500, detail=f"写入 CSV 失败: {e}")
+        finally:
+            if hasattr(conn, 'close'): conn.close()
+
     elif fmt == "excel":
         file_path = os.path.join(EXPORT_DIR, f"data_{body.table}_{ts}.xlsx")
         try:
             import openpyxl
             from openpyxl import Workbook
-            from openpyxl.styles import Alignment
-            wb = Workbook()
-            ws = wb.active
-            ws.title = body.table[:31]
-
-            # 写入表头
+            
+            # 使用 openpyxl 的 write_only 模式，实现增量流式生成 Excel
+            wb = Workbook(write_only=True)
+            ws = wb.create_sheet(title=body.table[:31])
+            
             if cols:
                 ws.append(cols)
 
-            # 写入数据
-            for row in rows:
-                ws.append([v if v is not None else None for v in row])
+            col_widths = {i+1: len(str(c)) for i, c in enumerate(cols)} if cols else {}
+            sample_lines = 0
 
-            # 自动列宽
-            for col_idx in range(1, (len(cols) if cols else 1) + 1):
+            # 分批拉取并追加写入 Excel
+            if db_type == "MySQL":
+                import pymysql.cursors
+                with conn.cursor(pymysql.cursors.SSCursor) as cursor:
+                    cursor.execute(sql)
+                    while True:
+                        rows = cursor.fetchmany(batch_size)
+                        if not rows:
+                            break
+                        for row in rows:
+                            cleaned_row = [v if v is not None else "" for v in row]
+                            ws.append(cleaned_row)
+                            if sample_lines < 1000:
+                                sample_lines += 1
+                                for idx, val in enumerate(cleaned_row):
+                                    col_widths[idx+1] = max(col_widths.get(idx+1, 10), len(str(val)))
+            else:
+                conn.run("BEGIN")
+                conn.run(f'DECLARE export_cursor CURSOR FOR SELECT * FROM "{body.table}"')
+                while True:
+                    rows = conn.run(f"FETCH {batch_size} FROM export_cursor")
+                    if not rows or len(rows) == 0:
+                        break
+                    for row in rows:
+                        cleaned_row = [v if v is not None else "" for v in row]
+                        ws.append(cleaned_row)
+                        if sample_lines < 1000:
+                            sample_lines += 1
+                            for idx, val in enumerate(cleaned_row):
+                                col_widths[idx+1] = max(col_widths.get(idx+1, 10), len(str(val)))
+                conn.run("CLOSE export_cursor")
+                conn.run("COMMIT")
+
+            # 在只写模式下配置自适应列宽（采样前1000行）
+            for col_idx, width in col_widths.items():
                 col_letter = openpyxl.utils.get_column_letter(col_idx)
-                max_len = len(str(cols[col_idx - 1])) if cols else 10
-                for row_cells in ws.iter_rows(min_col=col_idx, max_col=col_idx, values_only=True):
-                    for cell_val in row_cells:
-                        if cell_val is not None:
-                            max_len = max(max_len, len(str(cell_val)))
-                ws.column_dimensions[col_letter].width = min(max_len + 2, 60)
-
-            # 自动换行 + 自适应行高
-            for row_idx in range(1, ws.max_row + 1):
-                max_lines = 1
-                for cell in ws[row_idx]:
-                    if cell.value is None:
-                        continue
-                    col_width = ws.column_dimensions[
-                        openpyxl.utils.get_column_letter(cell.column)
-                    ].width or 10
-                    val = str(cell.value)
-                    for seg in val.split('\n'):
-                        chars_per_line = max(1, int(col_width * 1.1))
-                        max_lines = max(max_lines, -(-len(seg) // chars_per_line))
-                    cell.alignment = Alignment(wrap_text=True, vertical='top', horizontal='left')
-                ws.row_dimensions[row_idx].height = max(15, min(max_lines * 15, 200))
+                ws.column_dimensions[col_letter].width = min(width + 2, 50)
 
             wb.save(file_path)
-        except ImportError:
-            raise HTTPException(status_code=500, detail="openpyxl 未安装，无法导出 Excel")
+        except Exception as e:
+            if db_type != "MySQL":
+                try: conn.run("ROLLBACK")
+                except: pass
+            raise HTTPException(status_code=500, detail=f"写入 Excel 失败: {e}")
+        finally:
+            if hasattr(conn, 'close'): conn.close()
     else:
+        if hasattr(conn, 'close'): conn.close()
         raise HTTPException(status_code=400, detail=f"不支持的格式: {fmt}")
+
+    # 导出完成后，异步触发日志与导出文件轮转清理
+    try:
+        clean_old_temp_files()
+    except:
+        pass
 
     return FileResponse(file_path, filename=os.path.basename(file_path))

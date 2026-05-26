@@ -163,11 +163,11 @@ class DatabaseSyncer:
         # 1. 结构同步
         if self.options.get('sync_structure'):
             self._log(f"正在同步表结构: {table_name}")
-            # 保活：同步结构前先 ping 一下连接
-            db_type = self.source_data.get('db_type', 'MySQL')
-            if db_type == "MySQL":
+            # 保活：根据源/目标数据库实际类型进行 ping 探活
+            if self.source_data.get('db_type', 'MySQL') == "MySQL":
                 source_conn.ping(reconnect=True)
-            target_conn.ping(reconnect=True)
+            if self.target_data.get('db_type', 'MySQL') == "MySQL":
+                target_conn.ping(reconnect=True)
             ddl = self._get_create_statement(source_conn, table_name)
             self._apply_ddl(target_conn, table_name, ddl)
             self._log(f"表结构同步完成: {table_name}")
@@ -176,10 +176,10 @@ class DatabaseSyncer:
         if self.options.get('sync_data'):
             self._log(f"正在同步数据: {table_name}")
             
-            # 保活：开始前先 ping 一下连接
-            db_type = self.source_data.get('db_type', 'MySQL')
-            if db_type == "MySQL":
+            # 保活：根据源/目标数据库实际类型进行 ping 探活
+            if self.source_data.get('db_type', 'MySQL') == "MySQL":
                 source_conn.ping(reconnect=True)
+            if self.target_data.get('db_type', 'MySQL') == "MySQL":
                 target_conn.ping(reconnect=True)
 
             self._sync_table_data(source_conn, target_conn, table_name)
@@ -447,10 +447,10 @@ class DatabaseSyncer:
             self._log("索引重建完成")
 
     def _sync_pg_data(self, source_conn, target_conn, table_name, pk_columns, conflict):
-        """PostgreSQL 大表数据同步：分批 LIMIT/OFFSET + 多行 VALUES + 冲突检测"""
-        # 获取总行数
+        """PostgreSQL 大表数据同步：事务内游标流式拉取 (DECLARE CURSOR) + 多行 VALUES + 冲突检测"""
+        # 获取总行数（用于进度估算）
         total_est = self._get_table_count(source_conn, table_name, "PostgreSQL")
-        if total_est and total_est == 0:
+        if total_est == 0:
             self._log(f"表 {table_name} 无数据，跳过")
             return
 
@@ -476,43 +476,62 @@ class DatabaseSyncer:
 
         insert_sql = self._build_insert_sql(table_name, columns, "PostgreSQL", pk_columns, conflict)
         batch_size = 500  # PG 多行 VALUES 用 500 一批
-        offset = 0
         inserted = 0
         last_progress = 0
 
-        while not self.cancel_event.is_set():
-            # 分批拉取
-            rows = source_conn.run(f'SELECT * FROM "{table_name}" ORDER BY 1 OFFSET {offset} LIMIT {batch_size}')
-            if not rows or len(rows) == 0:
-                break
+        # 开始事务，并声明游标进行流式读取
+        cursor_declared = False
+        try:
+            source_conn.run("BEGIN")
+            source_conn.run(f'DECLARE db_sync_cursor CURSOR FOR SELECT * FROM "{table_name}"')
+            cursor_declared = True
 
-            # 多行批量写入（一次 sql 包含多个 VALUES）
-            batch = []
-            for row in rows:
-                if self.cancel_event.is_set():
+            while not self.cancel_event.is_set():
+                # 流式拉取数据
+                rows = source_conn.run(f'FETCH {batch_size} FROM db_sync_cursor')
+                if not rows or len(rows) == 0:
                     break
-                # row 是 tuple，转 dict
-                row_dict = dict(zip(columns, row))
-                batch.append(row_dict)
-                if len(batch) >= 200:  # 每 200 行构建一条多行 VALUES
+
+                # 多行批量写入（一次 sql 包含多个 VALUES）
+                batch = []
+                for row in rows:
+                    if self.cancel_event.is_set():
+                        break
+                    # row 是 tuple，转 dict
+                    row_dict = dict(zip(columns, row))
+                    batch.append(row_dict)
+                    if len(batch) >= 200:  # 每 200 行构建一条多行 VALUES
+                        self._batch_insert(target_conn, table_name, columns, batch, 200, "PostgreSQL", pk_columns, conflict, insert_sql)
+                        inserted += len(batch)
+                        batch = []
+                        if total_est:
+                            pct = min(99, int(inserted / total_est * 100))
+                            if pct > last_progress:
+                                last_progress = pct
+                                self.progress_callback("row_progress", {
+                                    "table": table_name, "inserted": inserted, "total_est": total_est, "percent": pct
+                                })
+                
+                if batch:
                     self._batch_insert(target_conn, table_name, columns, batch, 200, "PostgreSQL", pk_columns, conflict, insert_sql)
                     inserted += len(batch)
-                    batch = []
-                    if total_est:
-                        pct = min(99, int(inserted / total_est * 100))
-                        if pct > last_progress:
-                            last_progress = pct
-                            self.progress_callback("row_progress", {
-                                "table": table_name, "inserted": inserted, "total_est": total_est, "percent": pct
-                            })
-            if batch:
-                self._batch_insert(target_conn, table_name, columns, batch, 200, "PostgreSQL", pk_columns, conflict, insert_sql)
-                inserted += len(batch)
 
-            offset += batch_size
-            # 如果拉取的数据少于 batch_size，说明已拉完
-            if len(rows) < batch_size:
-                break
+                # 如果拉取的数据少于 batch_size，说明已拉完
+                if len(rows) < batch_size:
+                    break
+        except Exception as e:
+            self._log(f"流式拉取或写入数据时发生错误: {str(e)}", "ERROR")
+            raise e
+        finally:
+            if cursor_declared:
+                try:
+                    source_conn.run("CLOSE db_sync_cursor")
+                except:
+                    pass
+            try:
+                source_conn.run("COMMIT")
+            except:
+                pass
 
         self.stats['total_rows'] += inserted
         self._log(f"表 {table_name} 写入完成: {inserted} 行")

@@ -4,8 +4,19 @@ import json
 from datetime import datetime
 from utils.crypto import CryptoUtils
 
+# 统一劫持本模块内的 sqlite3.connect，默认注入 30s 锁等待超时，防止多线程并发死锁
+_original_connect = sqlite3.connect
+def _safe_connect(*args, **kwargs):
+    kwargs.setdefault('timeout', 30.0)
+    return _original_connect(*args, **kwargs)
+sqlite3.connect = _safe_connect
+
 class DBStorage:
-    _db_path = "connections.db"
+    # 强制将 SQLite 数据库路径解析为代码所在目录的绝对路径，防止改变工作区目录时数据发生漂移或丢失
+    _db_path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "connections.db"
+    )
 
     def __init__(self):
         self._init_db()

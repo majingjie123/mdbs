@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import { api } from '../api'
 import { useMessage, useDialog } from 'naive-ui'
 import { useAppStore } from '../stores/app'
@@ -60,6 +60,7 @@ const saving = ref(false)
 const testing = ref(false)
 const sshTesting = ref(false)
 const keyFileInput = ref<HTMLInputElement | null>(null)
+const isInitialized = ref(false)
 
 function browseKeyFile() {
   const input = document.createElement('input')
@@ -98,6 +99,9 @@ const dbTypeOptions = [
   { label: 'PostgreSQL', value: 'PostgreSQL' },
 ]
 
+const defaultPort = computed(() => formValue.value.db_type === 'PostgreSQL' ? 5432 : 3306)
+const defaultUser = computed(() => formValue.value.db_type === 'PostgreSQL' ? 'postgres' : 'root')
+
 onMounted(async () => {
   if (!isNew.value) {
     const res: any = await api.getConnection(connId.value)
@@ -125,7 +129,33 @@ onMounted(async () => {
       }
     }
   }
+  isInitialized.value = true
 })
+
+// 监听 db_type 变化，自动填充对应数据库的默认配置
+watch(
+  () => formValue.value.db_type,
+  (newType) => {
+    // 卫语句：若尚未初始化完成，不覆盖已有的加载配置
+    if (!isInitialized.value) return
+
+    if (newType === 'MySQL') {
+      formValue.value.port = 3306
+      formValue.value.user = 'root'
+      if (!formValue.value.host) {
+        formValue.value.host = '127.0.0.1'
+      }
+      formValue.value.ssh_remote_port = 3306
+    } else if (newType === 'PostgreSQL') {
+      formValue.value.port = 5432
+      formValue.value.user = 'postgres'
+      if (!formValue.value.host) {
+        formValue.value.host = '127.0.0.1'
+      }
+      formValue.value.ssh_remote_port = 5432
+    }
+  }
+)
 
 async function testConn() {
   testing.value = true
@@ -205,10 +235,10 @@ function remove() {
         <n-input v-model:value="formValue.host" placeholder="127.0.0.1" />
       </n-form-item>
       <n-form-item label="端口" path="port">
-        <n-input-number v-model:value="formValue.port" :min="1" :max="65535" />
+        <n-input-number v-model:value="formValue.port" :min="1" :max="65535" :placeholder="String(defaultPort)" />
       </n-form-item>
       <n-form-item label="用户名" path="user">
-        <n-input v-model:value="formValue.user" placeholder="root" />
+        <n-input v-model:value="formValue.user" :placeholder="defaultUser" />
       </n-form-item>
       <n-form-item label="密码" path="password">
         <n-input v-model:value="formValue.password" type="password" show-password-on="click" />
@@ -260,7 +290,7 @@ function remove() {
           <n-input v-model:value="formValue.ssh_remote_host" placeholder="127.0.0.1" />
         </n-form-item>
         <n-form-item label="远程端口">
-          <n-input-number v-model:value="formValue.ssh_remote_port" :min="1" :max="65535" placeholder="3306" />
+          <n-input-number v-model:value="formValue.ssh_remote_port" :min="1" :max="65535" :placeholder="String(defaultPort)" />
         </n-form-item>
       </template>
 

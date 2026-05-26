@@ -38,8 +38,17 @@ const searchPatterns = reactive(new Map<string, string>())
 const filterVersion = ref(0)
 // 搜索防抖
 let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null
+
+// 监听搜索词变化
 watch(
   () => Array.from(searchPatterns.entries()),
+  () => { filterVersion.value++ },
+  { deep: true }
+)
+
+// 监听节点展开折叠变化，以便实时刷新搜索框的渲染状态
+watch(
+  () => expandedKeys.value,
   () => { filterVersion.value++ },
   { deep: true }
 )
@@ -75,13 +84,22 @@ function tableFilter(node: any, pattern: string) {
   return true // 文件夹节点始终显示（n-tree 会自动隐藏无匹配子节点的父节点）
 }
 
-// 自定义渲染树节点标签：在「表」文件夹中嵌入搜索输入框
+// 自定义渲染树节点标签：在「表」文件夹中嵌入搜索输入框（仅展开展示表时显示）
 function renderLabel(info: { option: TreeNode }) {
   const node = info.option
+  
+  // 卫语句：非表类目节点，直接返回常规标签
   if (!node.key || !node.key.endsWith('/tables')) {
     return h('span', { style: 'font-size:13px' }, node.label)
   }
-  // 是「表」文件夹：label + 行内搜索框
+
+  // 卫语句：未展开表目录时，为了不遮挡美观，不显示搜索框
+  const isExpanded = expandedKeys.value.includes(node.key)
+  if (!isExpanded) {
+    return h('span', { style: 'font-size:13px' }, node.label)
+  }
+
+  // 是「表」文件夹且被展开：显示 label + 行内搜索框
   const pattern = searchPatterns.get(node.key) || ''
   return h('div', { style: 'display:flex;align-items:center;gap:4px;width:100%' }, [
     h('span', { style: 'flex-shrink:0;font-size:13px' }, node.label),

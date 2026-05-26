@@ -187,10 +187,17 @@ class DBOperations:
             if db_type == "MySQL":
                 with conn.cursor() as cursor:
                     cursor.execute("SHOW FULL TABLES WHERE Table_type = 'BASE TABLE'")
-                    key = f'Tables_in_{database or conn_data.get("database")}'
                     tables = []
                     for row in cursor.fetchall():
-                        table_name = row[key]
+                        # 模糊遍历匹配前缀 Tables_in_ 字段键，防止库名大小写不符 KeyError
+                        table_name = None
+                        for k in row.keys():
+                            if k.startswith("Tables_in_"):
+                                table_name = row[k]
+                                break
+                        if table_name is None:
+                            table_name = list(row.values())[0]  # 兜底获取第一列
+                            
                         table_comment = row.get('Comment', '') or ''
                         tables.append({'name': table_name, 'comment': table_comment})
                     return tables
@@ -219,8 +226,17 @@ class DBOperations:
             if db_type == "MySQL":
                 with conn.cursor() as cursor:
                     cursor.execute("SHOW FULL TABLES WHERE Table_type = 'VIEW'")
-                    key = f'Tables_in_{database or conn_data.get("database")}'
-                    return [row[key] for row in cursor.fetchall()]
+                    views = []
+                    for row in cursor.fetchall():
+                        view_name = None
+                        for k in row.keys():
+                            if k.startswith("Tables_in_"):
+                                view_name = row[k]
+                                break
+                        if view_name is None:
+                            view_name = list(row.values())[0]
+                        views.append(view_name)
+                    return views
             else:
                 target_schema = schema or 'public'
                 sql = "SELECT relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE c.relkind = 'v' AND n.nspname = :schema ORDER BY 1"
@@ -831,20 +847,35 @@ class DBOperations:
             # 处理单行注释 -- 或 #
             if not in_string and not in_block_comment:
                 if not in_line_comment and ((char == '-' and next_char == '-') or char == '#'):
+                    # 注释开始前，将当前累积的文本作为独立语句保存（若有）
+                    before_comment = sql[stmt_start:i].strip()
+                    if before_comment:
+                        statements.append(before_comment)
+                    stmt_start = i  # 注释不纳入结果，但先暂记；等注释结束后再前移
                     in_line_comment = True
-                elif in_line_comment and char == '\n':
+                elif in_line_comment and (char == '\n' or char == '\r'):
                     in_line_comment = False
+                    # 跳过注释内容：将 stmt_start 移到行尾之后
+                    if char == '\r' and i + 1 < sql_len and sql[i+1] == '\n':
+                        stmt_start = i + 2
+                        i += 2
+                        continue
+                    stmt_start = i + 1
 
             if in_line_comment:
                 i += 1
                 continue
 
-            # 处理字符串引用
+            # 处理字符串引用（同时处理 '' 转义引号）
             if (char == "'" or char == '"' or char == '`') and (i == 0 or sql[i-1] != '\\'):
                 if not in_string:
                     in_string = True
                     quote_char = char
                 elif char == quote_char:
+                    # MySQL 风格 '' 转义：两个连续引号表示一个转义的引号
+                    if char == "'" and i + 1 < sql_len and sql[i+1] == "'":
+                        i += 2  # 跳过两个引号，保持在字符串状态
+                        continue
                     in_string = False
                     quote_char = None
 
@@ -944,15 +975,25 @@ class DBOperations:
         
         results = []
         try:
-            # PostgreSQL: 在执行前设置 search_path
-            if db_type != "MySQL" and schema:
-                conn.run(f'SET search_path TO "{schema}"')
+            # PostgreSQL: 在执行前设置超时及 search_path
+            if db_type != "MySQL":
+                try:
+                    conn.run("SET statement_timeout = 30000")
+                except:
+                    pass
+                if schema:
+                    conn.run(f'SET search_path TO "{schema}"')
             
             total_stmts = len(statements)
             
             if db_type == "MySQL":
                 with conn.cursor() as cursor:
                     try:
+                        # 注入会话超时限制
+                        try:
+                            cursor.execute("SET max_execution_time = 30000")
+                        except:
+                            pass
                         # 开启显式事务以提升大批量写入性能
                         cursor.execute("SET autocommit=0")
                         
@@ -971,19 +1012,47 @@ class DBOperations:
                                 pct = int(((i+1) / total_stmts) * 100)
                                 progress_callback(pct, f"正在执行第 {i+1}/{total_stmts} 条语句...")
 
-                            cursor.execute(stmt, params)
+                            # 修复: 仅当语句含 %s 占位符时才传 params，避免无占位符语句报错
+                            stmt_params = params if params and '%s' in stmt else None
+                            cursor.execute(stmt, stmt_params)
                             
                             # 捕获查询结果 (针对 SELECT 等)
                             if cursor.description:
                                 columns = [col[0] for col in cursor.description]
-                                raw_rows = cursor.fetchall()
+                                # 性能优化：若 limit > 0，仅拉取满足分页上限的行数，避免大量数据全量加载
+                                if limit > 0:
+                                    raw_rows = cursor.fetchmany(offset + limit)
+                                else:
+                                    raw_rows = cursor.fetchall()
+
                                 # DictCursor 返回 dict_rows，转换为 list_rows 以匹配 API 契约
                                 if raw_rows and isinstance(raw_rows[0], dict):
                                     rows = [[row.get(col) for col in columns] for row in raw_rows]
                                 else:
                                     rows = raw_rows
                                 
-                                cleaned_rows = [[self._clean_value(cell) for cell in row] for row in rows]
+                                # 性能优化：首行样本探测清洗白名单，避免对常规基本列做无谓的循环转换
+                                clean_col_indices = set()
+                                if rows:
+                                    sample_row = rows[0]
+                                    for idx, val in enumerate(sample_row):
+                                        if type(val) not in (str, int, float, bool, type(None)):
+                                            clean_col_indices.add(idx)
+
+                                # 执行清洗
+                                cleaned_rows = []
+                                if not clean_col_indices:
+                                    cleaned_rows = [[cell for cell in row] for row in rows]
+                                else:
+                                    for row in rows:
+                                        cleaned_row = []
+                                        for idx, cell in enumerate(row):
+                                            if idx in clean_col_indices:
+                                                cleaned_row.append(self._clean_value(cell))
+                                            else:
+                                                cleaned_row.append(cell)
+                                        cleaned_rows.append(cleaned_row)
+
                                 total = len(cleaned_rows)
                                 truncated = False
                                 if limit > 0:
@@ -1045,7 +1114,27 @@ class DBOperations:
                             if rows and isinstance(rows[0], dict):
                                 rows = [[row.get(col['name']) for col in conn.columns] for row in rows]
                             
-                            cleaned_rows = [[self._clean_value(cell) for cell in row] for row in rows]
+                            # 性能优化：首行样本探测清洗白名单，避免对常规基本列做无谓的循环转换
+                            clean_col_indices = set()
+                            if rows:
+                                sample_row = rows[0]
+                                for idx, val in enumerate(sample_row):
+                                    if type(val) not in (str, int, float, bool, type(None)):
+                                        clean_col_indices.add(idx)
+
+                            # 执行清洗
+                            cleaned_rows = []
+                            if not clean_col_indices:
+                                cleaned_rows = [[cell for cell in row] for row in rows]
+                            else:
+                                for row in rows:
+                                    cleaned_row = []
+                                    for idx, cell in enumerate(row):
+                                        if idx in clean_col_indices:
+                                            cleaned_row.append(self._clean_value(cell))
+                                        else:
+                                            cleaned_row.append(cell)
+                                    cleaned_rows.append(cleaned_row)
                             total = len(cleaned_rows)
                             truncated = False
                             if limit > 0:
@@ -1074,7 +1163,10 @@ class DBOperations:
                             })
                     conn.run("COMMIT")
                 except Exception:
-                    conn.run("ROLLBACK")
+                    try:
+                        conn.run("ROLLBACK")
+                    except Exception:
+                        pass
                     raise
         finally:
             if hasattr(conn, 'close'): conn.close()
@@ -1110,12 +1202,22 @@ class DBOperations:
         conn = self.get_connection(conn_data, database=database)
         affected_total = 0
         try:
-            # PostgreSQL: 在执行前设置 search_path
-            if db_type != "MySQL" and schema:
-                conn.run(f'SET search_path TO "{schema}"')
+            # PostgreSQL: 在执行前设置超时及 search_path
+            if db_type != "MySQL":
+                try:
+                    conn.run("SET statement_timeout = 30000")
+                except:
+                    pass
+                if schema:
+                    conn.run(f'SET search_path TO "{schema}"')
             
             if db_type == "MySQL":
                 with conn.cursor() as cursor:
+                    # 注入会话超时限制
+                    try:
+                        cursor.execute("SET max_execution_time = 30000")
+                    except:
+                        pass
                     for sql, params in sql_list:
                         if cancel_event and cancel_event.is_set():
                             raise Exception("批处理已中途取消")
@@ -1126,17 +1228,26 @@ class DBOperations:
                     conn.commit()
             else:
                 # PostgreSQL
-                for sql, params in sql_list:
-                    if cancel_event and cancel_event.is_set():
-                        raise Exception("批处理已中途取消")
-                    if params:
-                        if isinstance(params, dict):
-                            conn.run(sql, **params)
+                try:
+                    conn.run("BEGIN")
+                    for sql, params in sql_list:
+                        if cancel_event and cancel_event.is_set():
+                            raise Exception("批处理已中途取消")
+                        if params:
+                            if isinstance(params, dict):
+                                conn.run(sql, **params)
+                            else:
+                                conn.run(sql, *params)
                         else:
-                            conn.run(sql, *params)
-                    else:
-                        conn.run(sql)
-                    affected_total += 1
+                            conn.run(sql)
+                        affected_total += 1
+                    conn.run("COMMIT")
+                except Exception:
+                    try:
+                        conn.run("ROLLBACK")
+                    except Exception:
+                        pass
+                    raise
             return True, affected_total
         except Exception as e:
             if db_type == "MySQL": conn.rollback()
