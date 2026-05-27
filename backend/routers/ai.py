@@ -39,6 +39,7 @@ def list_configs(storage: DBStorage = Depends(get_db_storage)):
                 "id": c.get("id"),
                 "name": c.get("name", ""),
                 "protocol": c.get("protocol", "openai"),
+                "api_key": c.get("api_key", ""),  # 返回已解密的 API Key，以便前端能够显示明文
                 "base_url": c.get("base_url", ""),
                 "model": c.get("model", ""),
                 "temperature": c.get("temperature", 0.7),

@@ -9,6 +9,7 @@ import ExportDialog from './dialogs/ExportDialog.vue'
 import ImportDialog from './dialogs/ImportDialog.vue'
 import BackupDialog from './dialogs/BackupDialog.vue'
 import SyncDialog from './dialogs/SyncDialog.vue'
+import AIConfigDialog from './dialogs/AIConfigDialog.vue'
 
 const router = useRouter()
 const message = useMessage()
@@ -30,6 +31,7 @@ const showExport = ref(false)
 const showImport = ref(false)
 const showBackup = ref(false)
 const showSync = ref(false)
+const showAIConfig = ref(false)
 
 // AI 助手右侧面板
 const aiPanelExpanded = ref(false)
@@ -136,6 +138,7 @@ function goImport() { closeMenus(); showImport.value = true }
 function goExport() { closeMenus(); showExport.value = true }
 function goBackupRestore() { closeMenus(); showBackup.value = true }
 function goSync() { closeMenus(); showSync.value = true }
+function goAIConfig() { closeMenus(); showAIConfig.value = true }
 function goSyncHistory() { closeMenus(); showSync.value = true }
 function goSettings() { closeMenus(); store.openTab('settings', '设置', {}, true) }
 function goAIChat() {
@@ -211,6 +214,8 @@ function goShortcuts() {
             <div class="dropdown-item" @click="goExport">导出...</div>
             <div class="dropdown-separator"></div>
             <div class="dropdown-item" @click="goBackupRestore">备份 / 恢复...</div>
+            <div class="dropdown-separator"></div>
+            <div class="dropdown-item" @click="goAIConfig">AI 配置...</div>
             <div class="dropdown-separator"></div>
             <div class="dropdown-item" @click="confirmExit">退出</div>
           </div>
@@ -316,6 +321,7 @@ function goShortcuts() {
     <ImportDialog v-model:visible="showImport" />
     <BackupDialog v-model:visible="showBackup" />
     <SyncDialog v-model:visible="showSync" />
+    <AIConfigDialog v-model:visible="showAIConfig" />
   </div>
 </template>
 

@@ -91,7 +91,7 @@
         <!-- 顶栏 -->
         <div class="bar">
           <div class="bar-left">
-            <n-select v-model:value="activeConfigId" :options="configOptions" placeholder="AI 配置" style="width:150px" clearable size="small" />
+            <n-select v-model:value="activeConfigId" :options="configOptions" placeholder="AI 配置" style="width:150px" clearable size="small" @update:show="(show: boolean) => { if (show) loadConfigs() }" />
             <n-tag v-if="activeConfig" size="tiny" type="info" style="max-width:280px;overflow:hidden;text-overflow:ellipsis" :title="connStrDetail">{{ connStrBrief }}</n-tag>
             <n-button size="tiny" @click="openTableSelect" :loading="contextLoading" :disabled="!connId">加载上下文</n-button>
             <span v-if="contextText" class="ctx-dot active" title="已加载上下文"></span>

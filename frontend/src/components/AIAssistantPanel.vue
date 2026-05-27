@@ -9,6 +9,7 @@
         size="tiny"
         style="flex:1;min-width:0"
         clearable
+        @update:show="(show: boolean) => { if (show) loadConfigs() }"
       />
       <n-button size="tiny" quaternary @click="openTableSelect" :loading="contextLoading" :disabled="!connId" title="加载表结构">
         📋
