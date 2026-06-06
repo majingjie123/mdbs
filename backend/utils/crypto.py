@@ -2,7 +2,8 @@ import os
 from cryptography.fernet import Fernet
 
 class CryptoUtils:
-    _key_file = "secret.key"
+    _BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _key_file = os.path.join(_BACKEND_DIR, "secret.key")
     _key = None
 
     @classmethod
@@ -36,4 +37,4 @@ class CryptoUtils:
             f = Fernet(cls._get_key())
             return f.decrypt(encrypted_text.encode()).decode()
         except Exception:
-            return "解密失败"
+            raise ValueError("解密失败: 密钥文件可能已损坏或变更")

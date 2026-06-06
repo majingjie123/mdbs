@@ -235,7 +235,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, nextTick, computed, watch, onUnmounted } from 'vue'
+import { ref, shallowRef, onMounted, nextTick, computed, watch, onUnmounted } from 'vue'
 import { useMessage, useDialog } from 'naive-ui'
 import { api, ExecResult } from '../api'
 import { useAppStore } from '../stores/app'
@@ -306,12 +306,13 @@ onMounted(() => {
 onUnmounted(() => {
   document.removeEventListener('mousemove', onVSplitMouseMove)
   document.removeEventListener('mouseup', onVSplitMouseUp)
+  stopLoadingDots()
 })
 
 // ── SQL 执行 ──
 const page = ref(1)
 const pageSize = ref(1000)
-const allRows = ref<any[][]>([])
+const allRows = shallowRef<any[][]>([])
 const displayRows = computed(() => {
   // 服务端分页：allRows 就是当前页数据
   return allRows.value
@@ -625,10 +626,12 @@ const histCols = [
 
 // ── 渲染 Markdown ──
 function escapeHTML(s: string): string {
-  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;')
 }
-
+const _mdCache = new Map<string, string>()
 function renderMD(text: string): string {
+  const cached = _mdCache.get(text)
+  if (cached !== undefined) return cached
   if (!text) return ''
   let html = escapeHTML(text)
   // 代码块 ```lang ... ```
@@ -667,7 +670,9 @@ function renderMD(text: string): string {
   // 段落
   html = html.replace(/\n\n/g, '</p><p>')
   html = html.replace(/\n/g, '<br/>')
-  return `<p>${html}</p>`
+  const result = `<p>${html}</p>`
+  if (result.length < 20000) _mdCache.set(text, result)
+  return result
 }
 
 function scrollDown() {
@@ -734,11 +739,11 @@ async function send() {
         try {
           const parsed = JSON.parse(data)
           if (parsed.error) { errMsg.value = parsed.error; sess.msgs.pop(); streaming.value=false; stopLoadingDots(); return }
-          if (parsed.content) { stopLoadingDots(); full += parsed.content; sess.msgs[idx] = {...sess.msgs[idx], content: full}; scrollDown() }
+          if (parsed.content) { stopLoadingDots(); full += parsed.content; sess.msgs[idx].content = full; scrollDown() }
         } catch {}
       }
     }
-    sess.msgs[idx] = {...sess.msgs[idx], content: full}
+    sess.msgs[idx].content = full
   } catch (e:any) {
     if (e.name==='AbortError') { sess.msgs.pop(); msg.info('已停止') }
     else { errMsg.value = e.message||'请求失败'; sess.msgs.pop() }

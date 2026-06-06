@@ -387,11 +387,14 @@ function onScrollMsg() {
 }
 
 // ── 渲染 MD ──
+const _mdCache = new Map<string, string>()
 function escapeHTML(s: string): string {
-  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/'/g,'&#39;').replace(/"/g,'&quot;')
 }
 
 function renderMD(text: string): string {
+  const cached = _mdCache.get(text)
+  if (cached !== undefined) return cached
   if (!text) return ''
   let html = escapeHTML(text)
   html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => {
@@ -420,7 +423,9 @@ function renderMD(text: string): string {
   html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
   html = html.replace(/\n\n/g, '</p><p>')
   html = html.replace(/\n/g, '<br/>')
-  return `<p>${html}</p>`
+  const result = `<p>${html}</p>`
+  if (result.length < 20000) _mdCache.set(text, result)
+  return result
 }
 
 onMounted(() => {

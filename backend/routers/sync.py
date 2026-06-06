@@ -92,7 +92,10 @@ def _run_sync_task(
     def progress_callback(event_type: str, data: dict):
         if event_type == "log":
             with _tasks_lock:
-                _sync_tasks[task_id]["logs"].append(data)
+                logs = _sync_tasks[task_id]["logs"]
+                logs.append(data)
+                if len(logs) > 500:  # 最多保留 500 条日志
+                    logs[:] = logs[-500:]
         elif event_type == "progress":
             with _tasks_lock:
                 _sync_tasks[task_id]["progress"] = data
@@ -145,9 +148,12 @@ def _run_sync_task(
             _sync_tasks[task_id]["error"] = str(e)
 
     finally:
-        # 移除 cancel_event 引用
         with _tasks_lock:
+            # 清理日志以释放内存，只保留状态和结果
             _sync_tasks[task_id].pop("cancel_event", None)
+            _sync_tasks[task_id].pop("logs", None)
+            _sync_tasks[task_id].pop("progress", None)
+            _sync_tasks[task_id].pop("row_progress", None)
 
 
 @router.post("/start")

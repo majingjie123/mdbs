@@ -16,8 +16,8 @@ class DBOperations:
         self._count_cache: dict[str, tuple] = {}  # key -> (total_count, expiry)
 
     def get_connection(self, conn_data, database=None):
-        """获取数据库连接，支持 MySQL 和 PostgreSQL"""
-        return self._get_or_create_connection(conn_data, database)
+        """获取数据库连接，支持 MySQL 和 PostgreSQL（默认使用连接池缓存）"""
+        return self._get_or_create_connection(conn_data, database, use_cache=True)
 
     def _cache_key(self, conn_data, database=None):
         return f"{conn_data.get('id')}_{database or conn_data.get('database')}"
@@ -61,7 +61,7 @@ class DBOperations:
 
         try:
             if db_type == "MySQL":
-                return pymysql.connect(
+                new_conn = pymysql.connect(
                     host=host, port=port,
                     user=conn_data['user'], password=conn_data.get('password'),
                     database=db_name, connect_timeout=30, charset='utf8mb4',
@@ -69,8 +69,7 @@ class DBOperations:
                 )
             else:
                 import pg8000.native
-                # pg8000.native 默认返回的是字典列表，且连接更现代
-                conn = pg8000.native.Connection(
+                new_conn = pg8000.native.Connection(
                     user=conn_data['user'],
                     password=conn_data.get('password'),
                     host=host,
@@ -78,7 +77,7 @@ class DBOperations:
                     database=db_name,
                     timeout=10
                 )
-                return conn
+            return new_conn
         except Exception as e:
             raise Exception(f"数据库连接失败 ({db_type}): {str(e)}")
 
@@ -98,6 +97,8 @@ class DBOperations:
         except Exception:
             try: conn.close()
             except: pass
+            with self._cache_lock:
+                self._conn_cache.pop(key, None)
 
     def disconnect(self, conn_data_or_id):
         """断开连接，释放隧道资源。接受 conn_id int 或 conn_data dict。"""
@@ -114,6 +115,18 @@ class DBOperations:
                 self.ssh_manager.stop_tunnel(conn_id)
             except Exception:
                 pass
+
+    def disconnect_all(self):
+        """断开所有缓存的数据库连接并清空缓存"""
+        with self._cache_lock:
+            for key, (conn, _) in list(self._conn_cache.items()):
+                try:
+                    if hasattr(conn, 'close'):
+                        conn.close()
+                except Exception:
+                    pass
+            self._conn_cache.clear()
+        self.ssh_manager.stop_all_tunnels()
 
     def test_connection(self, conn_data):
         """测试数据库连接 (增强版：支持错误清洗与智能检测)"""
@@ -1022,6 +1035,13 @@ class DBOperations:
             # PostgreSQL: 在执行前设置 search_path
             if db_type != "MySQL" and schema:
                 conn.run(f'SET search_path TO "{schema}"')
+
+            # 设置查询超时（30 秒），防止慢查询长期阻塞
+            if db_type == "MySQL":
+                with conn.cursor() as c:
+                    c.execute("SET SESSION max_execution_time = 30000")
+            else:
+                conn.run("SET statement_timeout = '30s'")
 
             total_affected = 0
             last_query_res = None

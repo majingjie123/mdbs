@@ -98,9 +98,17 @@ def main():
 
         _debug_log("Starting pywebview...")
 
-        # 给 uvicorn 一点启动时间
-        import time
-        time.sleep(1)
+        # 轮询等待 uvicorn 就绪（最多 10 秒）
+        import socket
+        _debug_log("Waiting for uvicorn...")
+        for _ in range(100):
+            try:
+                s = socket.create_connection((host, port), timeout=0.5)
+                s.close()
+                break
+            except (OSError, ConnectionRefusedError):
+                import time
+                time.sleep(0.1)
 
         # 用 pywebview 打开原生桌面窗口，内嵌前端界面
         import webview

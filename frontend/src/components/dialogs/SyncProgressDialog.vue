@@ -31,9 +31,11 @@ function scrollLogToBottom() {
 }
 
 // ── 轮询进度 ──
+let _pollErrors = 0
 async function pollProgress() {
   try {
     const res: any = await api.syncProgress(props.taskId)
+    _pollErrors = 0  // 成功一次则重置错误计数
     if (!res.success) {
       running.value = false
       statusText.value = '获取进度失败'
@@ -97,11 +99,16 @@ async function pollProgress() {
       }
     }
   } catch (e: any) {
-    running.value = false
-    statusText.value = '轮询失败'
-    if (pollTimer) {
-      clearInterval(pollTimer)
-      pollTimer = null
+    _pollErrors++
+    if (_pollErrors >= 5) {
+      running.value = false
+      statusText.value = '轮询失败（多次重试后放弃）'
+      if (pollTimer) {
+        clearInterval(pollTimer)
+        pollTimer = null
+      }
+    } else {
+      statusText.value = `轮询异常 (${_pollErrors}/5)`
     }
   }
 }

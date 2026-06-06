@@ -233,6 +233,7 @@ async function testConnection() {
     return
   }
   testing.value = true
+  let tempId = 0
   try {
     // Create temp config for testing
     const createRes: any = await api.aiCreateConfig({
@@ -247,18 +248,20 @@ async function testConnection() {
       message.error('创建临时配置失败')
       return
     }
-    const tempId = createRes.data.id
+    tempId = createRes.data.id
     const res: any = await api.aiTestConfig(tempId)
     if (res.success) {
       message.success('连接成功!')
     } else {
       message.error(res.message || '连接失败')
     }
-    // Clean up temp config
-    await api.aiDeleteConfig(tempId)
   } catch (e: any) {
     message.error('测试失败: ' + (e.message || ''))
   } finally {
+    // 清理临时配置
+    if (tempId) {
+      try { await api.aiDeleteConfig(tempId) } catch {}
+    }
     testing.value = false
   }
 }

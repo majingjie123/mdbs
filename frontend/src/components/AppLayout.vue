@@ -137,6 +137,7 @@ function goExport() { closeMenus(); showExport.value = true }
 function goBackupRestore() { closeMenus(); showBackup.value = true }
 function goSync() { closeMenus(); showSync.value = true }
 function goSyncHistory() { closeMenus(); showSync.value = true }
+function goAISettings() { closeMenus(); store.openTab('ai-settings', 'AI 设置', {}, true) }
 function goSettings() { closeMenus(); store.openTab('settings', '设置', {}, true) }
 function goAIChat() {
   closeMenus()
@@ -222,6 +223,8 @@ function goShortcuts() {
             <div class="dropdown-item" @click="goSync">数据库同步</div>
             <div class="dropdown-item" @click="goSync">同步表结构</div>
             <div class="dropdown-item" @click="goSyncHistory">同步历史记录</div>
+            <div class="dropdown-separator"></div>
+            <div class="dropdown-item" @click="goAISettings">AI 配置...</div>
           </div>
         </div>
         <div class="menu-item" @click="toggleEditMenu">

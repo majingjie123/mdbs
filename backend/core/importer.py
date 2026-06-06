@@ -211,7 +211,7 @@ class Importer:
 
         cols_def = []
         for col, typ in zip(columns, col_types):
-            safe_col = f"`{col}" if db_type == 'MySQL' else f'"{col}"'
+            safe_col = f"`{col}`" if db_type == 'MySQL' else f'"{col}"'
             cols_def.append(f"  {safe_col} {typ}")
 
         if db_type == 'MySQL':

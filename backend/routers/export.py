@@ -146,6 +146,11 @@ def export_data(body: ExportDataRequest, storage: DBStorage = Depends(get_db_sto
     db_type = conn_data.get("db_type", "MySQL")
     quote = "`" if db_type == "MySQL" else '"'
 
+    # 验证表名存在于数据库中
+    all_tables = ops.get_tables(conn_data, database=body.database or None)
+    if body.table not in all_tables:
+        raise HTTPException(status_code=400, detail=f"表 '{body.table}' 不存在")
+
     sql = f"SELECT * FROM {quote}{body.table}{quote}"
     try:
         cols, rows, affected, is_query = ops.execute_sql(

@@ -52,7 +52,7 @@ class DatabaseSyncer:
     def run(self):
         """同步主入口"""
         # 创建日志文件
-        log_dir = "sync_logs"
+        log_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "sync_logs")
         if not os.path.exists(log_dir):
             os.makedirs(log_dir)
         self.log_path = os.path.join(log_dir, f"sync_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
@@ -164,10 +164,12 @@ class DatabaseSyncer:
         if self.options.get('sync_structure'):
             self._log(f"正在同步表结构: {table_name}")
             # 保活：同步结构前先 ping 一下连接
-            db_type = self.source_data.get('db_type', 'MySQL')
-            if db_type == "MySQL":
+            src_type = self.source_data.get('db_type', 'MySQL')
+            tgt_type = self.target_data.get('db_type', 'MySQL')
+            if src_type == "MySQL":
                 source_conn.ping(reconnect=True)
-            target_conn.ping(reconnect=True)
+            if tgt_type == "MySQL":
+                target_conn.ping(reconnect=True)
             ddl = self._get_create_statement(source_conn, table_name)
             self._apply_ddl(target_conn, table_name, ddl)
             self._log(f"表结构同步完成: {table_name}")
@@ -177,9 +179,11 @@ class DatabaseSyncer:
             self._log(f"正在同步数据: {table_name}")
             
             # 保活：开始前先 ping 一下连接
-            db_type = self.source_data.get('db_type', 'MySQL')
-            if db_type == "MySQL":
+            src_type = self.source_data.get('db_type', 'MySQL')
+            tgt_type = self.target_data.get('db_type', 'MySQL')
+            if src_type == "MySQL":
                 source_conn.ping(reconnect=True)
+            if tgt_type == "MySQL":
                 target_conn.ping(reconnect=True)
 
             self._sync_table_data(source_conn, target_conn, table_name)
@@ -399,10 +403,6 @@ class DatabaseSyncer:
             if idx_ddl:
                 self._log(f"暂存 {len(idx_ddl)} 个非主键索引，数据同步后重建")
                 self._drop_indexes(target_conn, table_name, idx_ddl, "MySQL")
-
-        insert_sql = self._build_insert_sql(table_name, pk_columns or [], "MySQL", pk_columns, conflict)
-        _ = insert_sql  # 暂不改变原 INSERT 逻辑，保持向后兼容
-        insert_sql = self._build_insert_sql(table_name, [], "MySQL", [], "overwrite")
 
         # 构建列名（从第一次读取获取）
         columns = None

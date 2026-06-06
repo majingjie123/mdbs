@@ -53,6 +53,15 @@ app.include_router(sync_router.router)
 app.include_router(queries_router.router)
 
 
+@app.on_event("shutdown")
+def shutdown():
+    """应用关闭时清理 SSH 隧道和数据库连接"""
+    from core.ssh_manager import SSHTunnelManager
+    SSHTunnelManager().stop_all_tunnels()
+    from .dependencies import db_ops
+    db_ops.disconnect_all()
+
+
 @app.get("/api/health")
 def health():
     return {"status": "ok", "version": "1.0.0"}

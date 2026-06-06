@@ -618,17 +618,11 @@ class BackupManager:
                 cursor.execute("SET UNIQUE_CHECKS = 0")
                 cursor.execute("SET SQL_MODE = ''")
 
-                # 先遍历一遍统计总数（用于进度条）
-                total = 0
-                for _ in BackupManager._stream_sql_statements(input_path, cancel):
-                    total += 1
-                if cancel.is_set():
-                    return False, "恢复已取消"
+                log.info("开始恢复 SQL 文件")
 
-                log.info(f"开始恢复，共 {total} 条 SQL 语句")
-
-                # 正式执行（再次流式读取）
+                # 单次遍历执行
                 idx = 0
+                commit_counter = 0
                 for stmt in BackupManager._stream_sql_statements(input_path, cancel):
                     if cancel.is_set():
                         return False, "恢复已取消"
@@ -638,13 +632,16 @@ class BackupManager:
                     if not clean_stmt or clean_stmt.startswith('--'):
                         continue
 
-                    if idx % 10 == 0 or idx == total:
-                        progress = int(idx / total * 100) if total > 0 else 100
-                        log.info(f"恢复进度: [{idx}/{total}]", progress=progress)
+                    if idx % 500 == 0:
+                        log.info(f"恢复进度: [{idx}]")
 
                     try:
                         cursor.execute(clean_stmt)
-                        conn.commit()
+                        commit_counter += 1
+                        # 每 1000 条提交一次，减少 fsync 次数
+                        if commit_counter >= 1000:
+                            conn.commit()
+                            commit_counter = 0
                     except Exception as e:
                         err_str = str(e).lower()
                         if any(kw in clean_stmt[:20].upper() for kw in ['SET ', 'DROP ', '--']):
@@ -652,6 +649,12 @@ class BackupManager:
                         log.info(f"  语句 [{idx}] 执行警告: {e}")
                         if "table" in err_str and "doesn't exist" in err_str:
                             pass
+
+                # 刷新剩余语句并恢复约束检查
+                if commit_counter > 0:
+                    conn.commit()
+                cursor.execute("SET FOREIGN_KEY_CHECKS = 1")
+                cursor.execute("SET UNIQUE_CHECKS = 1")
 
             log.info("恢复完成", progress=100)
             return True, "恢复成功"

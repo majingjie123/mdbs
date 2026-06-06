@@ -176,18 +176,26 @@ const tableMaxHeight = ref(500)
 function updateTableMaxHeight() {
   const panel = document.querySelector('.result-panel') as HTMLElement | null
   if (panel) {
-    // 留出工具栏(36px) + 底部栏(42px) + padding(8px)
     const avail = panel.clientHeight - 86
     tableMaxHeight.value = Math.max(200, avail)
   }
 }
+let _resizeTimer: number | null = null
+function onResize() {
+  if (_resizeTimer) return
+  _resizeTimer = window.requestAnimationFrame(() => {
+    _resizeTimer = null
+    updateTableMaxHeight()
+  })
+}
 onMounted(() => {
-  window.addEventListener('resize', updateTableMaxHeight)
-  // 首次渲染后计算
+  window.addEventListener('resize', onResize)
   nextTick(updateTableMaxHeight)
 })
 onUnmounted(() => {
-  window.removeEventListener('resize', updateTableMaxHeight)
+  window.removeEventListener('resize', onResize)
+  if (_resizeTimer) cancelAnimationFrame(_resizeTimer)
+  if (_scrollTimer !== null) cancelAnimationFrame(_scrollTimer)
 })
 
 // 编辑状态（非响应式 stores + version 触发器，避免每个 cell render 创建海量 deps）
@@ -359,7 +367,7 @@ function formatSql() {
 }
 
 function startEdit(rowIdx: number, colIdx: number) {
-  const row = allRows.value[(page.value - 1) * pageSize.value + rowIdx]
+  const row = allRows.value[rowIdx]
   if (!row) return
   const absRow = (page.value - 1) * pageSize.value + rowIdx
   const cellKey = `${absRow}-${colIdx}`
@@ -372,7 +380,7 @@ function commitEdit(rowIdx: number, colIdx: number) {
   if (!_editCell) return
   const absRow = (page.value - 1) * pageSize.value + rowIdx
   const cellKey = `${absRow}-${colIdx}`
-  const row = allRows.value[absRow]
+  const row = allRows.value[rowIdx]
   const oldVal = row ? row[colIdx] : undefined
   const newVal = _editValue
   // 值没变 → 跳过
@@ -436,7 +444,8 @@ async function saveEdits() {
   }
 
   for (const [absRow, modCols] of rowMap) {
-    const rowData = allRows.value[absRow]
+    const relRow = absRow - (page.value - 1) * pageSize.value
+    const rowData = allRows.value[relRow]
     if (!rowData) continue
 
     const setClauses: string[] = []
@@ -501,7 +510,8 @@ async function saveEdits() {
       message.success(`成功保存 ${sqls.length} 行修改`)
       // 将新值写回 allRows，使界面立即反映修改
       for (const [absRow, modCols] of rowMap) {
-        const rowData = allRows.value[absRow]
+        const relRow = absRow - (page.value - 1) * pageSize.value
+        const rowData = allRows.value[relRow]
         if (rowData) {
           for (const [ci, newVal] of modCols) {
             rowData[ci] = newVal

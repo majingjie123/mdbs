@@ -5,7 +5,8 @@ from datetime import datetime
 from utils.crypto import CryptoUtils
 
 class DBStorage:
-    _db_path = "connections.db"
+    _BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _db_path = os.path.join(_BACKEND_DIR, "connections.db")
 
     def __init__(self):
         self._init_db()
@@ -145,20 +146,20 @@ class DBStorage:
 
             conn.commit()
 
-        # 9. 创建保存的查询表
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS saved_queries (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                conn_id INTEGER NOT NULL,
-                db_name TEXT DEFAULT '',
-                name TEXT NOT NULL,
-                sql_text TEXT NOT NULL DEFAULT '',
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            )
-        ''')
+            # 9. 创建保存的查询表
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS saved_queries (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    conn_id INTEGER NOT NULL,
+                    db_name TEXT DEFAULT '',
+                    name TEXT NOT NULL,
+                    sql_text TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+            ''')
 
-        conn.commit()
+            conn.commit()
 
     def save_workbench_log(self, script_path, content):
         """持久化保存工作台的所有日志文本，按脚本路径绑定"""

@@ -21,7 +21,7 @@ from core.db_operations import DBOperations
 router = APIRouter(prefix="/api/ai", tags=["AI 助手"])
 
 DB_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
     "connections.db",
 )
 

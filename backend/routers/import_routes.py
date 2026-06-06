@@ -106,24 +106,29 @@ async def import_sql(
         with open(save_path, "wb") as f:
             f.write(content)
 
-        # 读取 SQL 内容并逐条执行
+        # 读取 SQL 内容
         with open(save_path, "r", encoding=encoding, errors="replace") as f:
             sql_content = f.read()
 
-        # 按分号分割 SQL 语句
+        # 在后台线程中执行 SQL（避免阻塞事件循环）
         statements = [s.strip() for s in sql_content.replace("\r\n", "\n").split(";") if s.strip()]
-        executed = 0
-        errors = []
+        import asyncio
 
-        for stmt in statements:
-            try:
-                ops.execute_sql(conn_data, stmt, database=database or None)
-                executed += 1
-            except Exception as e:
-                if ignore_errors:
-                    errors.append(str(e))
-                else:
-                    raise
+        def _do_import():
+            executed = 0
+            errors = []
+            for stmt in statements:
+                try:
+                    ops.execute_sql(conn_data, stmt, database=database or None)
+                    executed += 1
+                except Exception as e:
+                    if ignore_errors:
+                        errors.append(str(e))
+                    else:
+                        raise
+            return executed, errors
+
+        executed, errors = await asyncio.get_event_loop().run_in_executor(None, _do_import)
 
         return {
             "success": True,

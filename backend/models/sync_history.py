@@ -5,7 +5,8 @@ import os
 from datetime import datetime
 
 class SyncHistoryManager:
-    _db_path = "connections.db"
+    _BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _db_path = os.path.join(_BACKEND_DIR, "connections.db")
 
     @classmethod
     def save_record(cls, record_dict):

@@ -79,6 +79,10 @@ function goBack() {
   }
 }
 
+function goAISettings() {
+  store.openTab('ai-settings', 'AI 设置', {}, true)
+}
+
 onMounted(loadSettings)
 </script>
 
@@ -117,6 +121,14 @@ onMounted(loadSettings)
             </div>
           </n-form-item>
         </n-form>
+      </n-tab-pane>
+
+      <!-- AI 设置 -->
+      <n-tab-pane name="ai" tab="AI 设置">
+        <div style="padding: 16px 0">
+          <p style="margin-bottom: 12px; color: var(--color-text-secondary);">配置 AI 助手使用的 API Key、模型、接口地址等</p>
+          <n-button type="primary" @click="goAISettings">打开 AI 配置页面</n-button>
+        </div>
       </n-tab-pane>
 
       <!-- 关于 -->
