@@ -198,6 +198,15 @@ class ExportDataRequest(BaseModel):
     include_data: bool = True
 
 
+class ExportBatchDataRequest(BaseModel):
+    """批量导出多表数据请求"""
+    conn_id: int
+    database: Optional[str] = None
+    schema_name: Optional[str] = None
+    tables: list[str]                        # 要导出的表列表
+    format: str = "csv"                      # csv / excel
+
+
 # ── 导入 ─────────────────────────────────────────────────
 
 class ParseFileResponse(BaseModel):
@@ -218,6 +227,22 @@ class ImportExecuteRequest(BaseModel):
     mode: str = "append"                     # append / replace / create
     encoding: str = "utf-8"                  # 文件编码
     has_header: bool = True
+
+
+class BatchImportItem(BaseModel):
+    """批量导入中的单个文件映射"""
+    file_path: str                           # 已解析暂存的文件路径
+    table_name: str                          # 目标表名
+    mode: str = "append"                     # append / replace / create
+
+
+class BatchImportRequest(BaseModel):
+    """批量导入请求"""
+    conn_id: int
+    database: Optional[str] = None
+    schema_name: Optional[str] = None
+    items: list[BatchImportItem]             # 文件映射列表
+    encoding: str = "utf-8"
 
 
 # ── 同步 ─────────────────────────────────────────────────

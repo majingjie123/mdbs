@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, watch, h } from 'vue'
 import { useMessage } from 'naive-ui'
 import { api } from '../../api'
 
@@ -16,6 +16,9 @@ const emit = defineEmits<{
 const message = useMessage()
 const loading = ref(false)
 const parsedData = ref<any>(null)
+
+// ── 导入模式：single / batch ──
+const dialogMode = ref<'single' | 'batch'>('single')
 
 // ── 导入类型 ──
 const importType = ref<'sql' | 'csv'>('csv')
@@ -42,7 +45,11 @@ const previewRows = ref<any[][]>([])
 const totalRows = ref(0)
 const columnMapping = ref<Record<string, string>>({})
 
-// ── 选择文件 ──
+// ── 批量导入 ──
+const batchFiles = ref<any[]>([])
+const batchFileMappings = ref<Record<string, string>>({})
+const batchFileModes = ref<Record<string, string>>({})
+const batchFileInputRef = ref<HTMLInputElement | null>(null)
 function triggerFileSelect() {
   fileInputRef.value?.click()
 }
@@ -175,9 +182,122 @@ async function doImport() {
   }
 }
 
+// ── 批量导入 ──
+function triggerBatchFileSelect() {
+  batchFileInputRef.value?.click()
+}
+
+function handleBatchFileChange(event: Event) {
+  const input = event.target as HTMLInputElement
+  if (input.files && input.files.length > 0) {
+    const files = Array.from(input.files)
+    batchFiles.value.push(...files.map((f) => ({
+      file: f,
+      filename: f.name,
+      status: 'pending' as 'pending' | 'parsed' | 'error',
+      columns: [] as string[],
+      preview_rows: [] as any[][],
+      total_rows: 0,
+      file_path: '',
+      target_table: f.name.replace(/\.(csv|xlsx)$/i, '').replace(/[^a-zA-Z0-9_一-龥]/g, '_'),
+    })))
+  }
+  input.value = ''
+}
+
+function removeBatchFile(index: number) {
+  batchFiles.value.splice(index, 1)
+}
+
+async function parseAllBatchFiles() {
+  if (!batchFiles.value.length) {
+    message.warning('请先选择文件')
+    return
+  }
+  loading.value = true
+  try {
+    const formData = new FormData()
+    batchFiles.value.forEach((item) => {
+      formData.append('files', item.file)
+    })
+    formData.append('encoding', 'utf-8')
+    const res: any = await api.importBatchParse(formData)
+    if (res.success && res.data?.files) {
+      res.data.files.forEach((parsed: any, idx: number) => {
+        if (idx < batchFiles.value.length) {
+          if (parsed.success) {
+            batchFiles.value[idx].status = 'parsed'
+            batchFiles.value[idx].columns = parsed.columns || []
+            batchFiles.value[idx].preview_rows = parsed.preview_rows || []
+            batchFiles.value[idx].total_rows = parsed.total_rows || 0
+            batchFiles.value[idx].file_path = parsed.file_path
+            batchFiles.value[idx].target_table = parsed.default_table_name
+          } else {
+            batchFiles.value[idx].status = 'error'
+            batchFiles.value[idx].error = parsed.message
+          }
+        }
+      })
+      message.success('文件解析完成')
+    } else {
+      message.error(res.message || '解析失败')
+    }
+  } catch (e: any) {
+    message.error(e.message || '解析失败')
+  } finally {
+    loading.value = false
+  }
+}
+
+async function doBatchImport() {
+  if (!props.connId) {
+    message.warning('请先选择连接')
+    return
+  }
+  const items = batchFiles.value
+    .filter((f) => f.status === 'parsed' && f.file_path)
+    .map((f) => ({
+      file_path: f.file_path,
+      table_name: f.target_table,
+      mode: batchFileModes.value[f.filename] || 'append',
+    }))
+  if (!items.length) {
+    message.warning('没有可导入的文件，请先上传并解析')
+    return
+  }
+  loading.value = true
+  try {
+    const res: any = await api.importBatchExecute({
+      conn_id: props.connId,
+      database: props.dbName || null,
+      items,
+      encoding: 'utf-8',
+    })
+    if (res.success) {
+      message.success(res.message || '批量导入完成')
+      emit('update:visible', false)
+    } else {
+      message.error(res.message || '批量导入失败')
+    }
+  } catch (e: any) {
+    message.error(e.message || '批量导入失败')
+  } finally {
+    loading.value = false
+  }
+}
+
 function close() {
   emit('update:visible', false)
 }
+
+watch(() => dialogMode.value, () => {
+  // 切换到批量模式时重置
+  if (dialogMode.value === 'batch') {
+    batchFiles.value = []
+    batchFileMappings.value = {}
+    batchFileModes.value = {}
+  }
+})
 
 watch(() => props.visible, (v) => {
   if (v) {
@@ -212,7 +332,7 @@ watch(importType, () => {
     :bordered="true"
     :segmented="{ content: true }"
   >
-    <!-- 隐藏的文件 input -->
+    <!-- 隐藏的文件 input（单文件） -->
     <input
       ref="fileInputRef"
       type="file"
@@ -221,37 +341,49 @@ watch(importType, () => {
       @change="handleFileChange"
     />
 
-    <n-form label-placement="left" label-width="100">
-      <!-- 导入类型 -->
-      <n-form-item label="导入类型">
-        <n-radio-group v-model:value="importType">
-          <n-radio-button value="sql">SQL 文件</n-radio-button>
-          <n-radio-button value="csv">CSV 文件</n-radio-button>
-        </n-radio-group>
-      </n-form-item>
+    <!-- 隐藏的文件 input（批量） -->
+    <input
+      ref="batchFileInputRef"
+      type="file"
+      accept=".csv,.xlsx"
+      multiple
+      style="display: none"
+      @change="handleBatchFileChange"
+    />
 
-      <!-- 文件选择 -->
-      <n-form-item label="选择文件">
-        <n-space>
-          <n-button @click="triggerFileSelect" :disabled="loading">选择文件</n-button>
-          <span v-if="uploadedFile" style="line-height: 34px; color: #666">
-            {{ uploadedFile.name }}
-          </span>
-          <span v-else style="line-height: 34px; color: #999">未选择文件</span>
-        </n-space>
-      </n-form-item>
+    <n-tabs v-model:value="dialogMode" type="line" size="small" style="margin-bottom: 12px">
+      <n-tab-pane name="single" tab="单文件导入">
+        <n-form label-placement="left" label-width="100">
+          <!-- 导入类型 -->
+          <n-form-item label="导入类型">
+            <n-radio-group v-model:value="importType">
+              <n-radio-button value="sql">SQL 文件</n-radio-button>
+              <n-radio-button value="csv">CSV 文件</n-radio-button>
+            </n-radio-group>
+          </n-form-item>
 
-      <!-- 字符编码 -->
-      <n-form-item v-if="importType === 'csv'" label="字符编码">
-        <n-select v-model:value="encoding" :options="[
-          { label: 'UTF-8', value: 'utf8' },
-          { label: 'UTF-8 BOM', value: 'utf-8-sig' },
-          { label: 'GBK', value: 'gbk' },
-          { label: 'Latin-1', value: 'latin1' },
-        ]" />
-      </n-form-item>
+          <!-- 文件选择 -->
+          <n-form-item label="选择文件">
+            <n-space>
+              <n-button @click="triggerFileSelect" :disabled="loading">选择文件</n-button>
+              <span v-if="uploadedFile" style="line-height: 34px; color: #666">
+                {{ uploadedFile.name }}
+              </span>
+              <span v-else style="line-height: 34px; color: #999">未选择文件</span>
+            </n-space>
+          </n-form-item>
 
-      <!-- 目标表名（CSV 模式） -->
+          <!-- 字符编码 -->
+          <n-form-item v-if="importType === 'csv'" label="字符编码">
+            <n-select v-model:value="encoding" :options="[
+              { label: 'UTF-8', value: 'utf8' },
+              { label: 'UTF-8 BOM', value: 'utf-8-sig' },
+              { label: 'GBK', value: 'gbk' },
+              { label: 'Latin-1', value: 'latin1' },
+            ]" />
+          </n-form-item>
+
+          <!-- 目标表名（CSV 模式） -->
       <template v-if="importType === 'csv'">
         <n-form-item label="目标表名">
           <n-input v-model:value="targetTable" placeholder="输入表名（创建/追加/替换）" />
@@ -307,18 +439,92 @@ watch(importType, () => {
         bordered
       />
     </div>
+    </n-tab-pane>
 
-    <n-alert type="warning" closable>
-      导入功能需要连接到数据库执行，请确保文件内容安全可靠。建议先备份目标数据库。
-    </n-alert>
+    <!-- 批量导入 -->
+    <n-tab-pane name="batch" tab="批量导入">
+      <n-space vertical>
+        <n-space>
+          <n-button @click="triggerBatchFileSelect" :disabled="loading">选择多个文件</n-button>
+          <span style="line-height: 34px; color: #999">
+            {{ batchFiles.length > 0 ? `已选择 ${batchFiles.length} 个文件` : '未选择文件' }}
+          </span>
+        </n-space>
 
-    <template #footer>
-      <n-space justify="end">
-        <n-button @click="close">取消</n-button>
-        <n-button type="primary" @click="doImport" :loading="loading">
-          {{ importType === 'csv' && !parsedData ? '解析并导入' : '开始导入' }}
-        </n-button>
+        <n-data-table
+          v-if="batchFiles.length > 0"
+          :columns="[
+            { title: '文件名', key: 'filename', ellipsis: true, width: 200 },
+            { title: '状态', key: 'status', width: 80,
+              render: (row: any) => {
+                if (row.status === 'parsed') return h('span', { style: 'color:#18a058' }, '已解析')
+                if (row.status === 'error') return h('span', { style: 'color:#d03050' }, '失败')
+                return h('span', { style: 'color:#909399' }, '待解析')
+              }
+            },
+            { title: '行数', key: 'total_rows', width: 60 },
+            { title: '目标表名', key: 'target_table', width: 180,
+              render: (row: any) => h('input', {
+                value: row.target_table,
+                style: 'width:100%;border:1px solid #d9d9d9;border-radius:3px;padding:2px 6px;font-size:12px',
+                onInput: (e: any) => { row.target_table = e.target.value },
+              })
+            },
+            { title: '操作', key: 'action', width: 60,
+              render: (_: any, idx: number) => h('button', {
+                style: 'color:#d03050;border:none;background:none;cursor:pointer',
+                onClick: () => removeBatchFile(idx),
+              }, '✕')
+            },
+          ]"
+          :data="batchFiles"
+          :max-height="250"
+          size="small"
+          bordered
+          striped
+        />
+
+        <n-space v-if="batchFiles.length > 0">
+          <n-button @click="parseAllBatchFiles" :loading="loading" secondary type="info">
+            解析全部文件
+          </n-button>
+        </n-space>
+
+        <template v-for="(f, idx) in batchFiles.filter((f: any) => f.status === 'parsed' && f.columns.length > 0)" :key="idx">
+          <n-collapse>
+            <n-collapse-item :title="`预览: ${f.filename}（${f.columns.join(', ')}...）`">
+              <n-data-table
+                :columns="f.columns.map((col: string) => ({ title: col, key: col, ellipsis: true, width: 120 }))"
+                :data="f.preview_rows.map((row: any[], ri: number) => {
+                  const obj: Record<string, any> = { _index: ri }
+                  f.columns.forEach((col: string, ci: number) => { obj[col] = row[ci] })
+                  return obj
+                })"
+                :max-height="200"
+                size="small"
+                bordered
+              />
+            </n-collapse-item>
+          </n-collapse>
+        </template>
       </n-space>
-    </template>
-  </n-modal>
+    </n-tab-pane>
+  </n-tabs>
+
+  <n-alert type="warning" closable>
+    导入功能需要连接到数据库执行，请确保文件内容安全可靠。建议先备份目标数据库。
+  </n-alert>
+
+  <template #footer>
+    <n-space justify="end">
+      <n-button @click="close">取消</n-button>
+      <n-button v-if="dialogMode === 'single'" type="primary" @click="doImport" :loading="loading">
+        {{ importType === 'csv' && !parsedData ? '解析并导入' : '开始导入' }}
+      </n-button>
+      <n-button v-else type="primary" @click="doBatchImport" :loading="loading">
+        批量导入 ({{ batchFiles.filter((f: any) => f.status === 'parsed').length }})
+      </n-button>
+    </n-space>
+  </template>
+</n-modal>
 </template>

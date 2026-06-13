@@ -15,6 +15,7 @@ from ..schemas import (
     ExportERRequest,
     ExportNavicatRequest,
     ExportDataRequest,
+    ExportBatchDataRequest,
     MessageResponse,
 )
 from core.db_operations import DBOperations
@@ -223,4 +224,79 @@ def export_data(body: ExportDataRequest, storage: DBStorage = Depends(get_db_sto
     else:
         raise HTTPException(status_code=400, detail=f"不支持的格式: {fmt}")
 
+    # ── 批量导出（多表 ZIP） ──────────────────────────────
     return FileResponse(file_path, filename=os.path.basename(file_path))
+
+
+@router.post("/batch-data")
+def export_batch_data(
+    body: ExportBatchDataRequest,
+    storage: DBStorage = Depends(get_db_storage),
+    ops: DBOperations = Depends(get_db_ops),
+):
+    """批量导出多个表的数据为 ZIP 压缩包"""
+    import zipfile
+    import io
+    import csv as csv_module
+
+    conn_data = _get_conn_data(body.conn_id, storage)
+    db_type = conn_data.get("db_type", "MySQL")
+    quote = "`" if db_type == "MySQL" else '"'
+
+    all_tables = ops.get_tables(conn_data, database=body.database or None)
+    invalid = [t for t in body.tables if t not in all_tables]
+    if invalid:
+        raise HTTPException(status_code=400, detail=f"表不存在: {', '.join(invalid)}")
+
+    _ensure_export_dir()
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    zip_path = os.path.join(EXPORT_DIR, f"batch_data_{ts}.zip")
+    fmt = body.format.lower()
+
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        for table_name in body.tables:
+            sql = f"SELECT * FROM {quote}{table_name}{quote}"
+            try:
+                cols, rows, _, _ = ops.execute_sql(
+                    conn_data, sql, database=body.database or None
+                )
+            except Exception as e:
+                zf.writestr(f"{table_name}_ERROR.txt", str(e).encode("utf-8"))
+                continue
+
+            if fmt == "csv":
+                buf = io.StringIO()
+                writer = csv_module.writer(buf)
+                if cols:
+                    writer.writerow(cols)
+                for row in rows:
+                    writer.writerow([
+                        str(v) if v is not None else "" for v in row
+                    ])
+                zf.writestr(f"{table_name}.csv", buf.getvalue().encode("utf-8-sig"))
+            elif fmt == "excel":
+                try:
+                    import openpyxl
+                    from openpyxl.utils import get_column_letter
+                    wb = openpyxl.Workbook()
+                    ws = wb.active
+                    ws.title = table_name[:31]
+                    if cols:
+                        ws.append(cols)
+                    for row in rows:
+                        ws.append([v if v is not None else None for v in row])
+                    for col_idx in range(1, (len(cols) if cols else 1) + 1):
+                        col_letter = get_column_letter(col_idx)
+                        max_len = len(str(cols[col_idx - 1])) if cols else 10
+                        for row_cells in ws.iter_rows(min_col=col_idx, max_col=col_idx, values_only=True):
+                            for cell_val in row_cells:
+                                if cell_val is not None:
+                                    max_len = max(max_len, len(str(cell_val)))
+                        ws.column_dimensions[col_letter].width = min(max_len + 2, 60)
+                    buf = io.BytesIO()
+                    wb.save(buf)
+                    zf.writestr(f"{table_name}.xlsx", buf.getvalue())
+                except ImportError:
+                    raise HTTPException(status_code=500, detail="openpyxl 未安装，无法导出 Excel")
+
+    return FileResponse(zip_path, filename=os.path.basename(zip_path))

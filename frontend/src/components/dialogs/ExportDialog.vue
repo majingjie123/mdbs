@@ -29,6 +29,12 @@ const dataTables = ref<{ label: string; value: string }[]>([])
 const selectedDataTable = ref('')
 const loadingTables = ref(false)
 
+// ── 批量导出 ──
+const batchFormat = ref('csv')
+const selectedBatchTables = ref<string[]>([])
+const batchTableOptions = ref<{ label: string; value: string }[]>([])
+const loadingBatchTables = ref(false)
+
 const connOptions = computed(() => {
   return (connections.value || []).map((c: any) => ({
     label: `${c.name} (${c.db_type}@${c.host}:${c.port})`,
@@ -54,6 +60,11 @@ const structureFormatOptions = [
 const dataFormatOptions = [
   { label: 'CSV', value: 'csv' },
   { label: 'Excel (.xlsx)', value: 'excel' },
+]
+
+const batchFormatOptions = [
+  { label: 'CSV（每个表一个文件）', value: 'csv' },
+  { label: 'Excel（每个表一个工作表）', value: 'excel' },
 ]
 
 // ── 选项 ──
@@ -170,9 +181,33 @@ watch(() => props.visible, (v) => {
   }
 })
 
+// ── 加载表列表（用于批量导出） ──
+async function loadBatchTables() {
+  if (!selectedConnId.value) return
+  loadingBatchTables.value = true
+  selectedBatchTables.value = []
+  batchTableOptions.value = []
+  try {
+    const res: any = await api.listTables(selectedConnId.value, selectedDb.value || undefined)
+    if (res.success && res.data) {
+      batchTableOptions.value = (res.data || []).map((t: any) => ({
+        label: t.comment ? `${t.name} (${t.comment})` : t.name,
+        value: t.name,
+      }))
+    }
+  } catch {
+    batchTableOptions.value = []
+  } finally {
+    loadingBatchTables.value = false
+  }
+}
+
 watch(() => activeTab.value, (tab) => {
   if (tab === 'data') {
     loadDataTables()
+  }
+  if (tab === 'batch-data') {
+    loadBatchTables()
   }
 })
 
@@ -269,6 +304,20 @@ async function doExport() {
       const ext = dataFormat.value === 'csv' ? 'csv' : 'xlsx'
       await downloadBlob(`${baseUrl}/export/data`, params, `data_${table}.${ext}`)
       message.success('数据导出成功')
+    } else if (activeTab.value === 'batch-data') {
+      if (!selectedBatchTables.value.length) {
+        message.warning('请选择要导出的表')
+        return
+      }
+      const params = {
+        conn_id: cid,
+        database: db,
+        tables: selectedBatchTables.value,
+        format: batchFormat.value,
+      }
+      const ext = batchFormat.value === 'csv' ? 'zip' : 'zip'
+      await downloadBlob(`${baseUrl}/export/batch-data`, params, `batch_data_${db || 'all'}.zip`)
+      message.success(`批量导出完成，共 ${selectedBatchTables.value.length} 个表`)
     } else if (activeTab.value === 'navicat') {
       // 导出所有连接（当前连接）
       const params = { conn_ids: [cid] }
@@ -386,6 +435,26 @@ function close() {
           <n-form-item label="包含数据">
             <n-switch v-model:value="includeData" />
           </n-form-item>
+        </n-form>
+      </n-tab-pane>
+
+      <!-- 批量导出数据 -->
+      <n-tab-pane name="batch-data" tab="批量导出">
+        <n-form label-placement="left" label-width="110">
+          <n-form-item label="导出格式">
+            <n-select v-model:value="batchFormat" :options="batchFormatOptions" />
+          </n-form-item>
+          <n-form-item label="选择表">
+            <n-transfer
+              v-model:value="selectedBatchTables"
+              :options="batchTableOptions"
+              :loading="loadingBatchTables"
+              style="width: 100%"
+            />
+          </n-form-item>
+          <n-alert type="info" closable>
+            将导出为 ZIP 压缩包，每个表一个独立文件（CSV / Excel）。
+          </n-alert>
         </n-form>
       </n-tab-pane>
 

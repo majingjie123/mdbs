@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from fastapi.responses import JSONResponse
 
 from ..dependencies import get_db_storage, get_db_ops
-from ..schemas import ImportExecuteRequest, MessageResponse
+from ..schemas import ImportExecuteRequest, BatchImportRequest, MessageResponse
 from core.db_operations import DBOperations
 from models.db_storage import DBStorage
 from core.importer import Importer
@@ -187,5 +187,147 @@ def import_execute(
             return {"success": True, "message": f"导入成功，共导入 {result} 行数据", "data": {"affected": result}}
         else:
             return {"success": False, "message": f"导入失败: {result}"}
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
+
+@router.post("/batch-parse")
+async def batch_parse_files(
+    files: list[UploadFile] = File(...),
+    encoding: str = Form("utf-8"),
+    has_header: bool = Form(True),
+    delimiter: str = Form(","),
+):
+    """批量上传并解析多个 CSV/Excel 文件"""
+    try:
+        if not files:
+            return {"success": False, "message": "未选择文件"}
+
+        _ensure_import_dir()
+        results = []
+
+        for file in files:
+            if not file.filename:
+                continue
+            ext = os.path.splitext(file.filename)[1].lower()
+            if ext not in (".csv", ".xlsx"):
+                results.append({
+                    "filename": file.filename, "success": False,
+                    "message": f"不支持的文件格式: {ext}",
+                })
+                continue
+
+            save_name = f"{uuid.uuid4().hex}{ext}"
+            save_path = os.path.join(IMPORT_DIR, save_name)
+            content = await file.read()
+            with open(save_path, "wb") as f:
+                f.write(content)
+
+            try:
+                if ext == ".csv":
+                    enc = encoding if encoding != "auto" else None
+                    columns, rows_display, rows_raw = Importer.parse_csv(
+                        save_path, delimiter=delimiter, has_header=has_header, encoding=enc
+                    )
+                else:
+                    columns, rows_display, rows_raw = Importer.parse_excel(
+                        save_path, has_header=has_header
+                    )
+
+                default_table = os.path.splitext(file.filename)[0].replace(" ", "_").replace("-", "_")
+                results.append({
+                    "filename": file.filename,
+                    "success": True,
+                    "file_path": save_path,
+                    "columns": columns,
+                    "preview_rows": rows_display[:5],
+                    "total_rows": len(rows_display),
+                    "default_table_name": default_table,
+                })
+            except Exception as e:
+                results.append({
+                    "filename": file.filename, "success": False, "message": str(e),
+                })
+
+        return {"success": True, "data": {"files": results}}
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
+
+@router.post("/batch-execute")
+def batch_import_execute(
+    body: BatchImportRequest,
+    storage: DBStorage = Depends(get_db_storage),
+    ops: DBOperations = Depends(get_db_ops),
+):
+    """批量执行导入"""
+    try:
+        conn_data = _get_conn_data(body.conn_id, storage)
+        results = []
+
+        for item in body.items:
+            file_path = item.file_path
+            if not os.path.exists(file_path):
+                results.append({
+                    "table_name": item.table_name, "success": False,
+                    "message": f"文件不存在: {file_path}",
+                })
+                continue
+
+            try:
+                ext = os.path.splitext(file_path)[1].lower()
+                if ext == ".csv":
+                    enc = body.encoding if body.encoding != "auto" else None
+                    columns, rows_display, rows_raw = Importer.parse_csv(
+                        file_path, has_header=True, encoding=enc
+                    )
+                elif ext == ".xlsx":
+                    columns, rows_display, rows_raw = Importer.parse_excel(
+                        file_path, has_header=True
+                    )
+                else:
+                    results.append({
+                        "table_name": item.table_name, "success": False,
+                        "message": f"不支持的文件格式: {ext}",
+                    })
+                    continue
+
+                if not rows_raw:
+                    results.append({
+                        "table_name": item.table_name, "success": False,
+                        "message": "文件为空或无有效数据",
+                    })
+                    continue
+
+                if item.mode == "create":
+                    create_sql = Importer.generate_create_sql(
+                        item.table_name, columns, rows_raw,
+                        db_type=conn_data.get("db_type", "MySQL"),
+                    )
+                    ops.execute_sql(conn_data, create_sql, database=body.database or None)
+
+                success, result = Importer.import_to_table(
+                    ops, conn_data, item.table_name, columns, rows_raw,
+                    mode=item.mode, database=body.database or None,
+                )
+
+                results.append({
+                    "table_name": item.table_name,
+                    "success": success,
+                    "message": f"导入{'成功' if success else '失败'}, 处理 {result if success else result} 行",
+                    "imported_rows": result if success else 0,
+                })
+            except Exception as e:
+                results.append({
+                    "table_name": item.table_name, "success": False, "message": str(e),
+                })
+
+        total = len(results)
+        success_count = sum(1 for r in results if r["success"])
+        return {
+            "success": True,
+            "message": f"批量导入完成: 成功 {success_count}/{total}",
+            "data": {"results": results, "total": total, "success_count": success_count},
+        }
     except Exception as e:
         return {"success": False, "message": str(e)}

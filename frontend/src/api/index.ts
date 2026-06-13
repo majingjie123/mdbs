@@ -220,6 +220,8 @@ export const api = {
   /** 导出表数据 */
   exportData: (params: any) =>
     http.post('/export/data', params, { responseType: 'blob' }) as Promise<Blob>,
+  exportBatchData: (params: any) =>
+    http.post('/export/batch-data', params, { responseType: 'blob' }) as Promise<Blob>,
 
   // ── 同步 ───────────────────────────────────────────
 
@@ -279,6 +281,14 @@ export const api = {
   /** 执行导入到数据库 */
   importExecute: (params: any) =>
     http.post('/import/execute', params) as Promise<ApiResponse<{ affected: number }>>,
+
+  /** 批量解析文件 */
+  importBatchParse: (formData: FormData) =>
+    http.post('/import/batch-parse', formData) as Promise<ApiResponse<{ files: any[] }>>,
+
+  /** 批量执行导入 */
+  importBatchExecute: (params: any) =>
+    http.post('/import/batch-execute', params) as Promise<ApiResponse<{ results: any[]; total: number; success_count: number }>>,
 
   // ── AI 助手 ───────────────────────────────────────────
 
