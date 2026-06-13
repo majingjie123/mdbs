@@ -23,6 +23,9 @@ const emit = defineEmits<{
   (e: 'update:modelValue', val: string): void
   (e: 'execute'): void
   (e: 'format'): void
+  (e: 'save'): void
+  (e: 'newTab'): void
+  (e: 'closeTab'): void
 }>()
 
 // 自动补全 - 表名/列名/视图名/函数名缓存
@@ -191,6 +194,10 @@ const extensions = [
     { key: 'Mod-Enter', run: () => { emit('execute'); return true } },
     { key: 'F5', run: () => { emit('execute'); return true } },
     { key: 'Mod-Shift-f', run: () => { handleFormat(); return true } },
+    // 新增快捷键
+    { key: 'Mod-s', run: () => { emit('save'); return true } },
+    { key: 'Mod-n', run: () => { emit('newTab'); return true } },
+    { key: 'Mod-w', run: () => { emit('closeTab'); return true } },
     ...searchKeymap,
     indentWithTab,
     ...defaultKeymap,
