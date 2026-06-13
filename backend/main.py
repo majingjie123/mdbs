@@ -24,7 +24,8 @@ from .routers import connections, databases, tables, query, backup, export, impo
 from .routers import sync as sync_router  # type: ignore[import-not-found]
 from .routers import ai as ai_router  # type: ignore[import-not-found]
 from .routers import queries as queries_router  # type: ignore[import-not-found]
-from .routers import triggers as triggers_router  # type: ignore[import-not-found]
+from .routers import triggers as triggers_router
+from .routers import events as events_router  # type: ignore[import-not-found]
 
 app = FastAPI(
     title="MDBS",
@@ -53,6 +54,7 @@ app.include_router(ai_router.router)
 app.include_router(sync_router.router)
 app.include_router(queries_router.router)
 app.include_router(triggers_router.router)
+app.include_router(events_router.router)
 
 
 @app.on_event("shutdown")

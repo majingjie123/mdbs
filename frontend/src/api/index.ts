@@ -135,6 +135,18 @@ export const api = {
   dropTrigger: (connId: number, triggerName: string, database?: string, schema?: string) =>
     http.delete(`/triggers/${connId}/${encodeURIComponent(triggerName)}`, { params: { database, schema } }) as Promise<ApiResponse>,
 
+  // ── 事件管理 (MySQL Events) ──
+  listEvents: (connId: number, database?: string, schema?: string) =>
+    http.get(`/events/${connId}`, { params: { database, schema } }) as Promise<ApiResponse<any[]>>,
+  getEventDDL: (connId: number, eventName: string, database?: string) =>
+    http.get(`/events/${connId}/${encodeURIComponent(eventName)}/ddl`, { params: { database } }) as Promise<ApiResponse<string>>,
+  createEvent: (connId: number, params: { event_name?: string; event_sql: string; database?: string }) =>
+    http.post(`/events/${connId}`, params) as Promise<ApiResponse>,
+  toggleEvent: (connId: number, eventName: string, enable: boolean, database?: string) =>
+    http.put(`/events/${connId}/${encodeURIComponent(eventName)}/toggle`, { enable }, { params: { database } }) as Promise<ApiResponse>,
+  dropEvent: (connId: number, eventName: string, database?: string) =>
+    http.delete(`/events/${connId}/${encodeURIComponent(eventName)}`, { params: { database } }) as Promise<ApiResponse>,
+
   // 表结构修改
   createTable: (connId: number, params: any) =>
     http.post(`/tables/${connId}/create`, params) as Promise<ApiResponse>,

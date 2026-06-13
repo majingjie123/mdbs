@@ -106,6 +106,17 @@ const router = createRouter({
         schemaName: (route.query.schema as string) || '',
       }),
     },
+    {
+      path: '/events/:connId/:event',
+      name: 'event-manager',
+      component: () => import('../views/EventManager.vue'),
+      props: (route) => ({
+        connId: parseInt(route.params.connId as string),
+        eventName: route.params.event as string,
+        dbName: (route.query.db as string) || '',
+        schemaName: (route.query.schema as string) || '',
+      }),
+    },
   ],
 })
 

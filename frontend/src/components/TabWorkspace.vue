@@ -18,6 +18,7 @@ const componentMap: Record<string, any> = {
   'view-manager': markRaw(defineAsyncComponent(() => import('../views/ViewManager.vue'))),
   'function-manager': markRaw(defineAsyncComponent(() => import('../views/FunctionManager.vue'))),
   'trigger-manager': markRaw(defineAsyncComponent(() => import('../views/TriggerManager.vue'))),
+  'event-manager': markRaw(defineAsyncComponent(() => import('../views/EventManager.vue'))),
   'settings': markRaw(defineAsyncComponent(() => import('../views/SettingsPage.vue'))),
 }
 

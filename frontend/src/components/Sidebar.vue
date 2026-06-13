@@ -415,6 +415,21 @@ async function loadDbObjects(connId: number, dbName: string, schemaName: string 
     children: [],
   })
 
+  // 事件文件夹 (仅 MySQL)
+  const evFolderKey = `${nodeKey}/events`
+  const connData = store.connections.find((c) => c.id === connId)
+  if (connData?.db_type === 'MySQL') {
+    children.push({
+      label: '📂 事件',
+      key: evFolderKey,
+      isLeaf: false,
+      nodeType: 'folder',
+      connId,
+      dbName,
+      children: [],
+    })
+  }
+
   return children
 }
 
@@ -506,6 +521,31 @@ async function loadTriggersIntoFolder(folderNode: TreeNode) {
   }
 }
 
+// ── 加载事件列表 ──
+async function loadEventsIntoFolder(folderNode: TreeNode) {
+  const { connId, dbName, schemaName, key } = folderNode
+  if (!connId) return
+  try {
+    const res: any = await api.listEvents(connId, dbName, schemaName)
+    if (!res?.success) {
+      folderNode.children = []
+      return
+    }
+    folderNode.children = (res.data || []).map((e: any) => ({
+      label: `📅 ${e.EVENT_NAME}`,
+      key: `${key}/evt-${e.EVENT_NAME}`,
+      isLeaf: true,
+      nodeType: 'event',
+      connId,
+      dbName,
+      schemaName,
+      rawData: e,
+    }))
+  } catch {
+    folderNode.children = [{ label: '加载失败', key: `${key}/err`, isLeaf: true }]
+  }
+}
+
 // ── 加载保存的查询列表 ──
 async function loadQueriesIntoFolder(folderNode: TreeNode) {
   const { connId, dbName, key } = folderNode
@@ -565,6 +605,8 @@ async function onExpand(node: TreeNode) {
       await loadFuncsIntoFolder(node)
     } else if (parts.some((p) => p === 'triggers')) {
       await loadTriggersIntoFolder(node)
+    } else if (parts.some((p) => p === 'events')) {
+      await loadEventsIntoFolder(node)
     } else if (parts.some((p) => p === 'queries')) {
       await loadQueriesIntoFolder(node)
     } else {
@@ -672,6 +714,17 @@ function onDblClick(node: TreeNode) {
     })
   }
 
+  // 事件 → 打开事件管理
+  if (type === 'event') {
+    trackRecent(node)
+    const eventName = node.rawData?.EVENT_NAME
+    store.openTab('event-manager', `📅 ${eventName}`, {
+      connId: node.connId,
+      eventName,
+      dbName: node.dbName || '',
+    })
+  }
+
   // 收藏夹项 → 按类型打开
   if (type?.startsWith('fav-')) {
     const innerType = type.replace('fav-', '')
@@ -687,6 +740,9 @@ function onDblClick(node: TreeNode) {
         break
       case 'trigger':
         store.openTab('trigger-manager', node.label, { connId: node.connId, dbName: node.dbName, triggerName: node.rawData?.TRIGGER_NAME || node.label.replace('⭐ ', '') })
+        break
+      case 'event':
+        store.openTab('event-manager', node.label, { connId: node.connId, dbName: node.dbName, eventName: node.rawData?.EVENT_NAME || node.label.replace('⭐ ', '') })
         break
       default:
         store.openTab('sql-workbench', node.label, { connId: node.connId, dbName: node.dbName })
@@ -709,6 +765,9 @@ function onDblClick(node: TreeNode) {
         break
       case 'trigger':
         store.openTab('trigger-manager', node.label, { connId: node.connId, dbName: node.dbName, triggerName: node.rawData?.TRIGGER_NAME || node.label.replace('🕐 ', '') })
+        break
+      case 'event':
+        store.openTab('event-manager', node.label, { connId: node.connId, dbName: node.dbName, eventName: node.rawData?.EVENT_NAME || node.label.replace('🕐 ', '') })
         break
       default:
         store.openTab('sql-workbench', node.label, { connId: node.connId, dbName: node.dbName })

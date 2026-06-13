@@ -201,7 +201,7 @@ def get_foreign_keys(conn_id: int, database: str = "", schema: str = "",
 | 视图管理 | P1 | ✅ 完成 | ViewManager.vue |
 | 存储过程/函数管理 | P2 | ✅ 完成 | FunctionManager.vue |
 | 触发器管理 | P1 | ✅ 完成 | TriggerManager.vue + 路由 |
-| 事件管理 (MySQL Events) | P2 | ❌ 待开发 | EventManager.vue (新建) |
+| 事件管理 (MySQL Events) | P2 | ✅ 完成 | EventManager.vue + 侧边栏集成 |
 
 ### 4.2 开发细节
 
@@ -275,7 +275,7 @@ def drop_trigger(...):
 - 创建触发器（BEFORE INSERT / AFTER UPDATE 等）
 - 删除触发器
 
-#### 4.2.2 事件管理（待开发）
+#### 4.2.2 事件管理（已完成）
 
 **后端 API:** 类似触发器，管理 MySQL Events
 
