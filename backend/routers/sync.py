@@ -282,3 +282,70 @@ def sync_history_detail(record_id: int):
         raise
     except Exception as e:
         return {"success": False, "message": str(e)}
+
+
+# ── 数据对比 ──
+
+@router.post("/compare")
+def sync_compare(body: SyncRequest, storage: DBStorage = Depends(get_db_storage)):
+    """比对源和目标数据库的表结构/数据差异"""
+    from ..dependencies import db_ops
+
+    source_conn = _get_conn_data(body.source_conn_id, storage)
+    target_conn = _get_conn_data(body.target_conn_id, storage)
+
+    source_db = body.source_db or source_conn.get("database", "")
+    target_db = body.target_db or target_conn.get("database", "")
+
+    result = {
+        "only_source": [],
+        "only_target": [],
+        "different": [],
+        "same": [],
+    }
+
+    # 获取表列表
+    try:
+        src_raw = db_ops.get_tables(source_conn, database=source_db) or []
+        source_tables = [t["name"] if isinstance(t, dict) else t for t in src_raw]
+    except:
+        source_tables = body.tables or []
+
+    try:
+        tgt_raw = db_ops.get_tables(target_conn, database=target_db) or []
+        target_tables = [t["name"] if isinstance(t, dict) else t for t in tgt_raw]
+    except:
+        target_tables = body.tables or []
+
+    source_set = set(source_tables)
+    target_set = set(target_tables)
+
+    result["only_source"] = sorted(source_set - target_set)
+    result["only_target"] = sorted(target_set - source_set)
+
+    # 对比共有表的数据行数
+    common = sorted(source_set & target_set)
+    for table in common[:50]:  # 最多对比50张表
+        diff = {"table": table, "structure": [], "data": {"source": 0, "target": 0, "diff": False}}
+
+        # 对比行数
+        try:
+            src_res = db_ops.execute_sql(source_conn, f"SELECT COUNT(*) as cnt FROM `{table}`", database=source_db)
+            src_cnt = src_res[2] if len(src_res) > 2 else 0
+            if src_res[3]:
+                src_cnt = src_res[1][0][0] if src_res[1] else 0
+        except:
+            src_cnt = -1
+
+        try:
+            tgt_res = db_ops.execute_sql(target_conn, f"SELECT COUNT(*) as cnt FROM `{table}`", database=target_db)
+            tgt_cnt = tgt_res[2] if len(tgt_res) > 2 else 0
+            if tgt_res[3]:
+                tgt_cnt = tgt_res[1][0][0] if tgt_res[1] else 0
+        except:
+            tgt_cnt = -1
+
+        diff["data"] = {"source": src_cnt, "target": tgt_cnt, "diff": src_cnt != tgt_cnt}
+        result["different"].append(diff)
+
+    return {"success": True, "data": result}

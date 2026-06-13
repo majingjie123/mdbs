@@ -337,6 +337,42 @@ const connOptions = computed(() => {
   }))
 })
 
+// ── 数据对比 ──
+const compareResult = ref<{ only_source: string[]; only_target: string[]; different: any[]; same: string[] } | null>(null)
+const compareLoading = ref(false)
+
+async function runCompare() {
+  if (!sourceConnId.value || !sourceDb.value || !targetConnId.value || !targetDb.value) {
+    message.warning('请选择源/目标连接和数据库')
+    return
+  }
+  compareLoading.value = true
+  compareResult.value = null
+  try {
+    const res: any = await api.syncCompare({
+      source_conn_id: sourceConnId.value,
+      source_db: sourceDb.value,
+      target_conn_id: targetConnId.value,
+      target_db: targetDb.value,
+      tables: selectedTables.value.length > 0 ? selectedTables.value : [],
+    })
+    if (res.success) {
+      compareResult.value = res.data
+      if (res.data.only_source.length === 0 && res.data.only_target.length === 0 && res.data.different.every((d: any) => !d.data.diff)) {
+        message.success('数据完全一致')
+      } else {
+        message.info('发现差异')
+      }
+    } else {
+      message.error(res.message || '对比失败')
+    }
+  } catch (e: any) {
+    message.error('对比失败: ' + e.message)
+  } finally {
+    compareLoading.value = false
+  }
+}
+
 const sourceDbOptions = computed(() => {
   return (sourceDatabases.value || []).map((db: string) => ({
     label: db,
@@ -564,6 +600,70 @@ function close() {
             <n-empty description="暂无同步历史" />
           </template>
         </n-data-table>
+      </n-tab-pane>
+
+      <n-tab-pane name="compare" tab="数据对比">
+        <n-space vertical size="large">
+          <n-alert type="info" :show-icon="false">
+            比对源数据库和目标数据库的表结构和数据差异
+          </n-alert>
+
+          <n-space>
+            <n-button type="primary" :loading="compareLoading" @click="runCompare">
+              开始对比
+            </n-button>
+            <n-button :disabled="!compareResult" @click="compareResult = null">
+              清除结果
+            </n-button>
+          </n-space>
+
+          <div v-if="compareResult" class="compare-result">
+            <n-space vertical>
+              <!-- 仅源端有的表 -->
+              <div v-if="compareResult.only_source.length > 0">
+                <div class="compare-section-title" style="color: #18a058">
+                  仅源端 ({{ compareResult.only_source.length }})
+                </div>
+                <n-tag v-for="t in compareResult.only_source" :key="t" size="small" type="success" style="margin: 2px">
+                  {{ t }}
+                </n-tag>
+              </div>
+
+              <!-- 仅目标端有的表 -->
+              <div v-if="compareResult.only_target.length > 0">
+                <div class="compare-section-title" style="color: #d03050">
+                  仅目标端 ({{ compareResult.only_target.length }})
+                </div>
+                <n-tag v-for="t in compareResult.only_target" :key="t" size="small" type="error" style="margin: 2px">
+                  {{ t }}
+                </n-tag>
+              </div>
+
+              <!-- 数据差异 -->
+              <div v-if="compareResult.different.length > 0">
+                <div class="compare-section-title">数据差异 ({{ compareResult.different.filter((d: any) => d.data.diff).length }})</div>
+                <n-data-table
+                  :columns="[
+                    { title: '表名', key: 'table', width: 200 },
+                    { title: '源行数', key: 'source', width: 100 },
+                    { title: '目标行数', key: 'target', width: 100 },
+                    { title: '差异', key: 'diff', width: 80,
+                      render: (row: any) => row.data.diff
+                        ? h('n-tag', { size: 'small', type: 'warning' }, '有差异')
+                        : h('n-tag', { size: 'small', type: 'success' }, '一致')
+                    },
+                  ]"
+                  :data="compareResult.different"
+                  :bordered="true"
+                  size="small"
+                  :max-height="250"
+                />
+              </div>
+
+              <n-empty v-if="compareResult.only_source.length === 0 && compareResult.only_target.length === 0 && compareResult.different.every((d: any) => !d.data.diff)" description="数据完全一致" />
+            </n-space>
+          </div>
+        </n-space>
       </n-tab-pane>
     </n-tabs>
 

@@ -172,6 +172,13 @@ export const api = {
     http.get('/sync/history', { params: { limit } }) as Promise<ApiResponse<any[]>>,
   syncHistoryDetail: (id: number) =>
     http.get(`/sync/history/${id}`) as Promise<ApiResponse<any>>,
+  syncCompare: (params: any) =>
+    http.post('/sync/compare', params) as Promise<ApiResponse<{
+      only_source: string[]
+      only_target: string[]
+      different: { table: string; data: { source: number; target: number; diff: boolean } }[]
+      same: string[]
+    }>>,
 
   // ── 备份 ───────────────────────────────────────────
 
