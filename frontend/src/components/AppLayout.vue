@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, provide, defineAsyncComponent } from 'vue'
+import { ref, provide, defineAsyncComponent, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMessage, useDialog } from 'naive-ui'
 import { useAppStore } from '../stores/app'
@@ -40,6 +40,28 @@ const statusConn = ref('')
 
 provide('statusText', statusText)
 provide('statusConn', statusConn)
+
+// 丰富状态栏
+const onlineCount = computed(() => store.connections.length)
+const tabCount = computed(() => store.tabs.length)
+const activeTabTitle = computed(() => store.activeTab?.title || '')
+
+const currentTime = ref('')
+let timeTimer: number | undefined
+
+function updateTime() {
+  const now = new Date()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  currentTime.value = `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`
+}
+
+onMounted(() => {
+  updateTime()
+  timeTimer = window.setInterval(updateTime, 1000)
+})
+onUnmounted(() => {
+  if (timeTimer !== undefined) clearInterval(timeTimer)
+})
 
 // 切换 AI 面板
 function toggleAIPanel() {
@@ -367,8 +389,19 @@ function goShortcuts() {
 
     <!-- 底部状态栏 -->
     <footer class="status-bar">
-      <span class="status-text">{{ statusText }}</span>
-      <span v-if="statusConn" class="status-conn">{{ statusConn }}</span>
+      <div class="status-left">
+        <span class="status-text">{{ statusText }}</span>
+        <span v-if="statusConn" class="status-conn">{{ statusConn }}</span>
+      </div>
+      <div class="status-right">
+        <span v-if="activeTabTitle" class="status-active">{{ activeTabTitle }}</span>
+        <span class="status-divider">|</span>
+        <span class="status-tabs">标签 {{ tabCount }}</span>
+        <span class="status-divider">|</span>
+        <span class="status-conns">{{ onlineCount }} 个连接</span>
+        <span class="status-divider">|</span>
+        <span class="status-clock">{{ currentTime }}</span>
+      </div>
     </footer>
 
     <!-- 全局对话框 -->
@@ -566,6 +599,28 @@ function goShortcuts() {
 
 .status-conn {
   color: var(--color-conn-online);
+}
+
+.status-left,
+.status-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.status-active {
+  color: var(--color-text);
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.status-divider {
+  color: var(--color-border);
+  opacity: 0.5;
+}
+.status-clock {
+  font-family: monospace;
+  letter-spacing: 0.5px;
 }
 
 /* ── AI 切换竖条 ── */
