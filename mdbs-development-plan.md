@@ -137,7 +137,7 @@ SQLWorkbench.vue 实现行级新增/删除：
 | 列管理(添加/修改/删除) | P0 | ✅ 完成 | 内联编辑 + ALTER SQL |
 | 索引管理 | P1 | ✅ 完成 | 添加/删除索引 |
 | 索引管理可视化 | P1 | ✅ 完成 | 弹窗编辑索引 |
-| 外键关系管理 | P2 | ❌ 待开发 | 可视化外键编辑 |
+| 外键关系管理 | P2 | ✅ 完成 | 可视化外键编辑 |
 | 列拖拽排序 | P2 | ❌ 待开发 | 拖拽排序替代按钮 |
 | 表/字段注释管理 | P1 | ✅ 完成 | 编辑注释 |
 | 修改预览 SQL | P1 | ✅ 完成 | ALTER 预览 |
@@ -200,12 +200,12 @@ def get_foreign_keys(conn_id: int, database: str = "", schema: str = "",
 |--------|--------|------|----------|
 | 视图管理 | P1 | ✅ 完成 | ViewManager.vue |
 | 存储过程/函数管理 | P2 | ✅ 完成 | FunctionManager.vue |
-| 触发器管理 | P1 | ❌ 待开发 | TriggerManager.vue (新建) |
+| 触发器管理 | P1 | ✅ 完成 | TriggerManager.vue + 路由 |
 | 事件管理 (MySQL Events) | P2 | ❌ 待开发 | EventManager.vue (新建) |
 
 ### 4.2 开发细节
 
-#### 4.2.1 触发器管理（待开发 - 当前最高优先级）
+#### 4.2.1 触发器管理（已完成）
 
 **后端 API (`backend/routers/triggers.py`):**
 
@@ -460,7 +460,7 @@ AppLayout.vue 菜单栏下方添加工具栏，带图标按钮和 hover 提示�
 - 按钮点击关联到已有的 `goImport()`/`goExport()`/`goBackupRestore()`/`goSync()` 等函数
 - 工具栏颜色跟随主题变量 `--bg-toolbar`
 
-#### 10.2.3 状态栏丰富（待开发）
+#### 10.2.3 状态栏丰富（已完成）
 
 在 AppLayout.vue 底部显示：
 - 连接状态（已连接/未连接 + 图标）
