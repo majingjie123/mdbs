@@ -42,6 +42,79 @@ const optCharset = ref('')
 const optAutoInc = ref<number | null>(null)
 const originalOptions = ref<Record<string, string>>({})
 
+// 创建表相关
+const showCreateTable = ref(false)
+const createTableName = ref('')
+const createColumns = ref([
+  { name: 'id', type: 'BIGINT', nullable: false, primary_key: true, auto_increment: true, default: '', comment: '主键ID' },
+  { name: 'created_at', type: 'DATETIME', nullable: true, primary_key: false, auto_increment: false, default: 'CURRENT_TIMESTAMP', comment: '创建时间' },
+])
+const createTableEngine = ref('InnoDB')
+const createTableCharset = ref('utf8mb4')
+const createTableComment = ref('')
+
+const commonTypes = [
+  'BIGINT', 'INT', 'INTEGER', 'SMALLINT', 'TINYINT',
+  'VARCHAR(255)', 'CHAR(10)', 'TEXT', 'LONGTEXT', 'MEDIUMTEXT',
+  'FLOAT', 'DOUBLE', 'DECIMAL(10,2)',
+  'DATETIME', 'DATE', 'TIMESTAMP', 'TIME', 'YEAR',
+  'BOOLEAN', 'BOOL', 'BLOB', 'JSON', 'ENUM',
+]
+
+function addCreateColumn() {
+  createColumns.value.push({
+    name: '', type: 'VARCHAR(255)', nullable: true, primary_key: false, auto_increment: false, default: '', comment: ''
+  })
+}
+
+function removeCreateColumn(index: number) {
+  createColumns.value.splice(index, 1)
+}
+
+async function doCreateTable() {
+  if (!createTableName.value.trim()) {
+    message.warning('请输入表名')
+    return
+  }
+  if (createColumns.value.length === 0) {
+    message.warning('请至少添加一个字段')
+    return
+  }
+  const validColumns = createColumns.value.filter(c => c.name.trim())
+  if (validColumns.length === 0) {
+    message.warning('请填写字段名')
+    return
+  }
+  try {
+    const res: any = await api.createTable(props.connId, {
+      table_name: createTableName.value,
+      columns: validColumns,
+      engine: createTableEngine.value,
+      charset: createTableCharset.value,
+      comment: createTableComment.value,
+      database: props.dbName || undefined,
+    })
+    if (res.success) {
+      message.success('表创建成功')
+      showCreateTable.value = false
+      // 重置表单
+      createTableName.value = ''
+      createColumns.value = [
+        { name: 'id', type: 'BIGINT', nullable: false, primary_key: true, auto_increment: true, default: '', comment: '主键ID' },
+        { name: 'created_at', type: 'DATETIME', nullable: true, primary_key: false, auto_increment: false, default: 'CURRENT_TIMESTAMP', comment: '创建时间' },
+      ]
+      // 刷新表列表
+      if (props.tableName) {
+        await reload()
+      }
+    } else {
+      message.error(res.message || '创建失败')
+    }
+  } catch (e: any) {
+    message.error('创建失败: ' + e.message)
+  }
+}
+
 // ── 计算属性 ─────────────────────────────────────
 const hasColumnEdits = computed(() => {
   if (columns.value.length !== editedColumns.value.length) return true
@@ -425,16 +498,17 @@ onMounted(() => {
     <!-- 表头工具栏 -->
     <div class="page-header">
       <div class="page-title">
-        <h2>{{ props.tableName }}</h2>
+        <h2>{{ props.tableName || '表管理' }}</h2>
         <n-tag v-if="props.dbName" type="info" size="small">{{ props.dbName }}</n-tag>
       </div>
       <n-space size="small">
+        <n-button size="tiny" type="primary" @click="showCreateTable = true" v-if="!props.tableName">+ 新建表</n-button>
         <n-button size="tiny" @click="reload">刷新</n-button>
         <n-button size="tiny" @click="newQuery">新建查询</n-button>
-        <n-button size="tiny" @click="copyName">复制表名</n-button>
-        <n-button size="tiny" @click="generateSelect">生成 SELECT</n-button>
-        <n-button size="tiny" @click="copyDDL">复制 DDL</n-button>
-        <n-button size="tiny" @click="openWorkbench">SQL 工作台</n-button>
+        <n-button size="tiny" @click="copyName" v-if="props.tableName">复制表名</n-button>
+        <n-button size="tiny" @click="generateSelect" v-if="props.tableName">生成 SELECT</n-button>
+        <n-button size="tiny" @click="copyDDL" v-if="props.tableName">复制 DDL</n-button>
+        <n-button size="tiny" @click="openWorkbench" v-if="props.tableName">SQL 工作台</n-button>
       </n-space>
     </div>
 
@@ -618,6 +692,52 @@ onMounted(() => {
         />
       </n-tab-pane>
     </n-tabs>
+
+    <!-- 创建表对话框 -->
+    <n-modal v-model:show="showCreateTable" title="创建新表" preset="card" style="width: 700px; max-height: 80vh;" :mask-closable="false">
+      <n-form label-placement="left" label-width="80">
+        <n-form-item label="表名">
+          <n-input v-model:value="createTableName" placeholder="请输入表名" />
+        </n-form-item>
+        <n-form-item label="引擎">
+          <n-select v-model:value="createTableEngine" :options="[
+            { label: 'InnoDB', value: 'InnoDB' },
+            { label: 'MyISAM', value: 'MyISAM' },
+            { label: 'MEMORY', value: 'MEMORY' },
+          ]" />
+        </n-form-item>
+        <n-form-item label="字符集">
+          <n-select v-model:value="createTableCharset" :options="[
+            { label: 'utf8mb4', value: 'utf8mb4' },
+            { label: 'utf8', value: 'utf8' },
+            { label: 'latin1', value: 'latin1' },
+          ]" />
+        </n-form-item>
+        <n-form-item label="表注释">
+          <n-input v-model:value="createTableComment" placeholder="表注释（可选）" />
+        </n-form-item>
+        <n-divider>字段定义</n-divider>
+        <div class="create-columns">
+          <div v-for="(col, idx) in createColumns" :key="idx" class="column-row">
+            <n-input v-model:value="col.name" placeholder="字段名" style="width: 120px" />
+            <n-select v-model:value="col.type" :options="commonTypes.map(t => ({ label: t, value: t }))" style="width: 140px" />
+            <n-switch v-model:value="col.primary_key" title="主键" />
+            <n-switch v-model:value="col.auto_increment" title="自增" :disabled="!col.primary_key" />
+            <n-switch v-model:value="col.nullable" title="可空" />
+            <n-input v-model:value="col.default" placeholder="默认值" style="width: 100px" />
+            <n-input v-model:value="col.comment" placeholder="注释" style="width: 100px" />
+            <n-button size="tiny" type="error" quaternary @click="removeCreateColumn(idx)">×</n-button>
+          </div>
+          <n-button size="small" type="primary" quaternary @click="addCreateColumn">+ 添加字段</n-button>
+        </div>
+      </n-form>
+      <template #footer>
+        <n-space justify="end">
+          <n-button @click="showCreateTable = false">取消</n-button>
+          <n-button type="primary" @click="doCreateTable">创建表</n-button>
+        </n-space>
+      </template>
+    </n-modal>
   </div>
 </template>
 
@@ -651,7 +771,20 @@ onMounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  margin-bottom: 12px;
+}
+.create-columns {
+  max-height: 400px;
+  overflow-y: auto;
+}
+.create-columns .column-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
   margin-bottom: 8px;
+  padding: 8px;
+  background: var(--bg-sidebar);
+  border-radius: 4px;
 }
 .alter-preview {
   background: #1e1e1e;
