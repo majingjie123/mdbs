@@ -524,7 +524,7 @@ AppLayout.vue 菜单栏下方添加工具栏，带图标按钮和 hover 提示�
 | 交互式 ER 图查看器 | P3 | ❌ 待开发 | 前端 d3.js / vis.js |
 | 用户权限管理 | P3 | ✅ 完成 | GRANT/REVOKE + 用户CRUD |
 | 数据库性能监控 | P3 | ✅ 完成 | SHOW STATUS + 连接/查询/锁/进程监控 |
-| SQL 任务计划 | P3 | ❌ 待开发 | APScheduler |
+| SQL 任务计划 | P3 | ✅ 完成 | threading 调度 + CRUD + SQLTaskManager |
 | 数据生成器 | P3 | ❌ 待开发 | 模拟数据填充 |
 | 数据透视图 | P3 | ❌ 待开发 | 图表展示 |
 

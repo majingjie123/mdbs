@@ -182,6 +182,23 @@ class DBStorage:
                     updated_at TEXT NOT NULL
                 )
             ''')
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS sql_tasks (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    conn_id INTEGER NOT NULL,
+                    name TEXT NOT NULL,
+                    database TEXT NOT NULL DEFAULT '',
+                    sql_text TEXT NOT NULL,
+                    schedule_type TEXT NOT NULL DEFAULT 'once',
+                    schedule_value TEXT NOT NULL DEFAULT '',
+                    enabled INTEGER DEFAULT 1,
+                    last_run TEXT,
+                    next_run TEXT,
+                    last_result TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+            ''')
                 cursor.execute('''
                     CREATE TABLE IF NOT EXISTS backup_plans (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -743,4 +760,66 @@ class DBStorage:
         now = datetime.now().isoformat(timespec='seconds')
         with sqlite3.connect(self._db_path) as conn:
             conn.execute('UPDATE sync_plans SET last_run=?, updated_at=? WHERE id=?', (now, now, plan_id))
+            conn.commit()
+
+    # ── SQL 任务管理 ──
+
+    def list_sql_tasks(self, conn_id=None):
+        """列出 SQL 任务"""
+        with sqlite3.connect(self._db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            if conn_id:
+                rows = conn.execute(
+                    'SELECT * FROM sql_tasks WHERE conn_id=? ORDER BY created_at DESC', (conn_id,)
+                ).fetchall()
+            else:
+                rows = conn.execute('SELECT * FROM sql_tasks ORDER BY created_at DESC').fetchall()
+            return [dict(r) for r in rows]
+
+    def get_sql_task(self, task_id):
+        """获取单个 SQL 任务"""
+        with sqlite3.connect(self._db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute('SELECT * FROM sql_tasks WHERE id=?', (task_id,)).fetchone()
+            return dict(row) if row else None
+
+    def save_sql_task(self, data):
+        """新增或更新 SQL 任务"""
+        now = datetime.now().isoformat(timespec='seconds')
+        if data.get('id'):
+            task_id = data.pop('id')
+            data['updated_at'] = now
+            sets = ', '.join(f'{k}=?' for k in data.keys())
+            params = list(data.values()) + [task_id]
+            with sqlite3.connect(self._db_path) as conn:
+                conn.execute(f'UPDATE sql_tasks SET {sets} WHERE id=?', params)
+                conn.commit()
+            return task_id
+        else:
+            data.pop('id', None)
+            data['created_at'] = now
+            data['updated_at'] = now
+            cols = ', '.join(data.keys())
+            placeholders = ', '.join('?' for _ in data)
+            params = list(data.values())
+            with sqlite3.connect(self._db_path) as conn:
+                cur = conn.cursor()
+                cur.execute(f'INSERT INTO sql_tasks ({cols}) VALUES ({placeholders})', params)
+                conn.commit()
+                return cur.lastrowid
+
+    def delete_sql_task(self, task_id):
+        """删除 SQL 任务"""
+        with sqlite3.connect(self._db_path) as conn:
+            conn.execute('DELETE FROM sql_tasks WHERE id=?', (task_id,))
+            conn.commit()
+
+    def update_sql_task_run_time(self, task_id, result=''):
+        """更新 SQL 任务运行时间和结果"""
+        now = datetime.now().isoformat(timespec='seconds')
+        with sqlite3.connect(self._db_path) as conn:
+            conn.execute(
+                'UPDATE sql_tasks SET last_run=?, last_result=?, updated_at=? WHERE id=?',
+                (now, result[:500], now, task_id),
+            )
             conn.commit()

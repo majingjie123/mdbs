@@ -635,6 +635,14 @@ async function onExpand(node: TreeNode) {
         connId: node.connId,
         children: [],
       })
+      mgmtItems.push({
+        label: '📅 SQL 任务',
+        key: `${node.key}/sql-tasks`,
+        isLeaf: false,
+        nodeType: 'folder',
+        connId: node.connId,
+        children: [],
+      })
       node.children = [...dbs, ...mgmtItems]
     } else if (parts.some((p) => p.startsWith('db-')) && parts.length === 2) {
       // 数据库 → 检查是否是 PostgreSQL 需要加载 schema
@@ -670,7 +678,9 @@ async function onExpand(node: TreeNode) {
     } else if (parts.some((p) => p === 'sync-plans')) {
       // 同步计划文件夹无子项, 直接打开
       onDblClick(node)
-    } else if (parts.some((p) => p === 'performance')) {
+    } else if (parts.some((p) => p === 'performance')
+    } else if (parts.some((p) => p === 'sql-tasks')) {
+      onDblClick(node)) {
       // 性能监控文件夹无子项, 直接打开
       onDblClick(node)
     } else if (parts.some((p) => p === 'queries')) {
@@ -822,6 +832,13 @@ function onDblClick(node: TreeNode) {
   // 性能监控文件夹 → 打开性能监控
   if (type === 'folder' && node.key?.includes('/performance')) {
     store.openTab('performance-monitor', '📊 性能监控', {
+      connId: node.connId,
+    })
+  }
+
+  // SQL 任务文件夹 → 打开 SQL 任务管理
+  if (type === 'folder' && node.key?.includes('/sql-tasks')) {
+    store.openTab('sql-task-manager', '📅 SQL 任务', {
       connId: node.connId,
     })
   }
