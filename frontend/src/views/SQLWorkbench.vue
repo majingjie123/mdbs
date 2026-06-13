@@ -377,6 +377,93 @@ function formatSql() {
   }
 }
 
+// ── EXPLAIN 执行计划 ──
+const explainResult = ref('')
+const showExplain = ref(false)
+
+async function runExplain() {
+  if (!sqlText.value.trim()) {
+    message.warning('请输入 SQL 语句')
+    return
+  }
+  if (!props.connId) {
+    message.warning('连接不存在')
+    return
+  }
+
+  // 只对 SELECT/INSERT/UPDATE/DELETE 进行 EXPLAIN
+  const upperSql = sqlText.value.trim().toUpperCase()
+  if (!upperSql.match(/^(SELECT|INSERT|UPDATE|DELETE|REPLACE)/)) {
+    message.warning('EXPLAIN 仅支持 SELECT/INSERT/UPDATE/DELETE 语句')
+    return
+  }
+
+  running.value = true
+  showExplain.value = true
+  explainResult.value = ''
+
+  try {
+    // 使用 EXPLAIN FORMAT=JSON 获取详细信息
+    const explainSql = `EXPLAIN FORMAT=JSON ${sqlText.value}`
+    const res: any = await api.executeSQL(
+      props.connId,
+      explainSql,
+      props.dbName || undefined,
+      undefined,
+      undefined,
+      1,
+      1,
+    )
+
+    if (res.success && res.data) {
+      // 格式化 JSON 输出
+      try {
+        const json = typeof res.data.rows[0] === 'string'
+          ? JSON.parse(res.data.rows[0][0])
+          : res.data.rows[0]
+        explainResult.value = JSON.stringify(json, null, 2)
+      } catch {
+        explainResult.value = res.data.rows[0]?.[0] || JSON.stringify(res.data, null, 2)
+      }
+    } else {
+      // 如果 JSON 格式失败，尝试普通 EXPLAIN
+      const simpleExplainSql = `EXPLAIN ${sqlText.value}`
+      const simpleRes: any = await api.executeSQL(
+        props.connId,
+        simpleExplainSql,
+        props.dbName || undefined,
+        undefined,
+        undefined,
+        1,
+        100,
+      )
+      if (simpleRes.success && simpleRes.data) {
+        // 转换为表格形式显示
+        const cols = simpleRes.data.columns || []
+        const rows = simpleRes.data.rows || []
+        let output = cols.join(' | ') + '\n' + cols.map(() => '---').join(' | ') + '\n'
+        for (const row of rows) {
+          output += row.join(' | ') + '\n'
+        }
+        explainResult.value = output
+      } else {
+        explainResult.value = res.message || 'EXPLAIN 执行失败'
+      }
+    }
+  } catch (e: any) {
+    explainResult.value = '执行失败: ' + e.message
+  } finally {
+    running.value = false
+  }
+}
+
+function copyExplainResult() {
+  if (explainResult.value) {
+    navigator.clipboard.writeText(explainResult.value)
+    message.success('已复制到剪贴板')
+  }
+}
+
 // ── 批量操作 ──
 const batchOptions = [
   { label: '批量设置值', key: 'set' },
@@ -807,6 +894,9 @@ async function doSaveQuery(overwrite?: boolean) {
           <n-button size="tiny" @click="formatSql" title="格式化 SQL (Ctrl+Shift+F)">
             ♨ 格式化
           </n-button>
+          <n-button size="tiny" @click="runExplain" title="执行 EXPLAIN 分析查询计划">
+            📊 EXPLAIN
+          </n-button>
         </n-space>
       </div>
 
@@ -976,6 +1066,21 @@ async function doSaveQuery(overwrite?: boolean) {
     </div>
 
     <n-empty v-else-if="result && !result.columns.length" description="查询执行成功，无返回数据" />
+
+    <!-- EXPLAIN 结果面板 -->
+    <n-modal v-model:show="showExplain" title="EXPLAIN 执行计划" preset="card" style="width: 800px; max-height: 80vh;" :mask-closable="true">
+      <n-spin :show="running">
+        <n-pre style="max-height: 500px; overflow: auto; background: #1e1e1e; padding: 12px; border-radius: 4px;">
+          {{ explainResult || '正在执行...' }}
+        </n-pre>
+      </n-spin>
+      <template #footer>
+        <n-space justify="end">
+          <n-button @click="copyExplainResult">复制结果</n-button>
+          <n-button type="primary" @click="showExplain = false">关闭</n-button>
+        </n-space>
+      </template>
+    </n-modal>
 
     <!-- 保存查询对话框 -->
     <n-modal v-model:show="saveQueryDialog" title="保存查询" preset="card" style="width: 450px" :mask-closable="false">
