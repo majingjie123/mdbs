@@ -447,7 +447,7 @@ def check_backup_plans():
 | 侧栏搜索表 | P1 | ✅ 完成 | 每个数据库独立搜索框 |
 | 右键菜单 | P1 | ✅ 完成 | 连接树 + 标签页 |
 | 快捷键 | P1 | ✅ 完成 | Ctrl+Enter/F5/S/W/Shift+F |
-| 全局工具栏 | P0 | ❌ 待开发 | 图标按钮工具栏 |
+| 全局工具栏 | P0 | ✅ 完成 | 图标按钮工具栏 |
 | 收藏夹/快捷方式 | P1 | ❌ 待开发 | 收藏连接和表 |
 | 最近使用记录 | P1 | ❌ 待开发 | localStorage 存储 |
 | 状态栏丰富 | P1 | ❌ 待开发 | 显示连接状态/耗时/行数 |
@@ -466,39 +466,24 @@ def check_backup_plans():
 - `Ctrl+W` — 关闭标签
 - `Ctrl+F` — 查找
 
-#### 10.2.2 全局工具栏（待开发）
+#### 10.2.2 全局工具栏（已完成）
 
-在 AppLayout.vue 菜单栏和主区域之间添加工具栏：
+AppLayout.vue 菜单栏下方添加工具栏，带图标按钮和 hover 提示：
 
-```vue
-<div class="toolbar">
-  <n-button-group size="tiny">
-    <n-tooltip trigger="hover"><template #trigger>
-      <n-button quaternary @click="newQuery">📝 查询</n-button>
-    </template>新建查询</n-tooltip>
-    
-    <n-tooltip trigger="hover"><template #trigger>
-      <n-button quaternary @click="showTableDesigner">📐 设计表</n-button>
-    </template>表设计器</n-tooltip>
-    
-    <n-tooltip trigger="hover"><template #trigger>
-      <n-button quaternary @click="showExport">📤 导出</n-button>
-    </template>导出数据</n-tooltip>
-    
-    <n-tooltip trigger="hover"><template #trigger>
-      <n-button quaternary @click="showImport">📥 导入</n-button>
-    </template>导入数据</n-tooltip>
-    
-    <n-tooltip trigger="hover"><template #trigger>
-      <n-button quaternary @click="showBackup">💾 备份</n-button>
-    </template>备份/恢复</n-tooltip>
-    
-    <n-tooltip trigger="hover"><template #trigger>
-      <n-button quaternary @click="showSync">🔄 同步</n-button>
-    </template>数据同步</n-tooltip>
-  </n-button-group>
-</div>
-```
+| 按钮 | 功能 | 对应菜单 |
+|------|------|----------|
+| 🔵 连接 | 新增数据库连接 | 文件→新增连接 |
+| 💬 查询 | 打开 AI 聊天/查询 | 文件→新建查询 |
+| 📥 导入 | 导入数据对话框 | 文件→导入数据 |
+| 📤 导出 | 导出对话框 | 文件→导出 |
+| 💾 备份 | 备份/恢复对话框 | 文件→备份 |
+| 🔄 同步 | 数据同步对话框 | 工具→数据库同步 |
+
+- 使用 `n-button-group` 分组，带分隔线区分功能区域
+- 每个按钮有 SVG 图标 + 文字标签
+- `n-tooltip` 悬停提示详细功能说明
+- 按钮点击关联到已有的 `goImport()`/`goExport()`/`goBackupRestore()`/`goSync()` 等函数
+- 工具栏颜色跟随主题变量 `--bg-toolbar`
 
 #### 10.2.3 状态栏丰富（待开发）
 

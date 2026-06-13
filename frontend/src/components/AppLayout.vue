@@ -267,6 +267,68 @@ function goShortcuts() {
     <!-- 分隔线 -->
     <div class="menu-sep"></div>
 
+    <!-- 全局工具栏 -->
+    <div class="toolbar" @click.stop>
+      <n-button-group size="tiny">
+        <n-tooltip trigger="hover">
+          <template #trigger>
+            <n-button quaternary @click="goNewConnection">
+              <template #icon><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a7 7 0 100 14A7 7 0 008 1zm3 8H9v2a1 1 0 01-2 0V9H5a1 1 0 010-2h2V5a1 1 0 112 0v2h2a1 1 0 010 2z"/></svg></template>
+              连接
+            </n-button>
+          </template>
+          <span>新增数据库连接</span>
+        </n-tooltip>
+        <n-tooltip trigger="hover">
+          <template #trigger>
+            <n-button quaternary @click="goAIChat">
+              <template #icon><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a7 7 0 100 14A7 7 0 008 1zM6.5 5.5a1.5 1.5 0 113 0 1.5 1.5 0 01-3 0z"/></svg></template>
+              查询
+            </n-button>
+          </template>
+          <span>新建查询 (Ctrl+Enter)</span>
+        </n-tooltip>
+        <n-divider vertical style="height: 20px; margin: 0 4px;" />
+        <n-tooltip trigger="hover">
+          <template #trigger>
+            <n-button quaternary @click="goImport">
+              <template #icon><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a7 7 0 100 14A7 7 0 008 1zM4 8a1 1 0 012 0v1h2V8a1 1 0 012 0v3a1 1 0 01-1 1H5a1 1 0 01-1-1V8z"/></svg></template>
+              导入
+            </n-button>
+          </template>
+          <span>导入数据 (CSV/SQL)</span>
+        </n-tooltip>
+        <n-tooltip trigger="hover">
+          <template #trigger>
+            <n-button quaternary @click="goExport">
+              <template #icon><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a7 7 0 100 14A7 7 0 008 1zM4 8a1 1 0 012 0v1h2V8a1 1 0 012 0v3a1 1 0 01-1 1H5a1 1 0 01-1-1V8z" transform="rotate(180,8,8)"/></svg></template>
+              导出
+            </n-button>
+          </template>
+          <span>导出数据/结构</span>
+        </n-tooltip>
+        <n-divider vertical style="height: 20px; margin: 0 4px;" />
+        <n-tooltip trigger="hover">
+          <template #trigger>
+            <n-button quaternary @click="goBackupRestore">
+              <template #icon><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M4 3a3 3 0 013-3h2a3 3 0 013 3v2h2.5a.5.5 0 01.5.5v9a.5.5 0 01-.5.5h-13a.5.5 0 01-.5-.5v-9a.5.5 0 01.5-.5H4V3zm2 0v2h4V3a1 1 0 00-1-1H7a1 1 0 00-1 1z"/></svg></template>
+              备份
+            </n-button>
+          </template>
+          <span>备份/恢复数据库</span>
+        </n-tooltip>
+        <n-tooltip trigger="hover">
+          <template #trigger>
+            <n-button quaternary @click="goSync">
+              <template #icon><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 3a5 5 0 00-4.546 2.914.5.5 0 01-.908-.417A6 6 0 1114 8a.5.5 0 01-1 0 5 5 0 00-5-5z"/><path d="M8 10a2 2 0 100-4 2 2 0 000 4zm-6.5.5a.5.5 0 01.5-.5h3a.5.5 0 010 1H2a.5.5 0 01-.5-.5z"/></svg></template>
+              同步
+            </n-button>
+          </template>
+          <span>数据/结构同步</span>
+        </n-tooltip>
+      </n-button-group>
+    </div>
+
     <!-- 主区域（可拖拽分割） -->
     <div ref="containerRef" class="main-area" :class="{ dragging: isDragging }">
       <div class="sidebar-wrapper" :style="{ width: splitPos + 'px' }">
@@ -424,6 +486,27 @@ function goShortcuts() {
   height: 1px;
   background: var(--color-border);
   flex-shrink: 0;
+}
+
+/* ── 全局工具栏 ── */
+.toolbar {
+  display: flex;
+  align-items: center;
+  height: 32px;
+  min-height: 32px;
+  padding: 0 10px;
+  background: var(--bg-toolbar);
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+  gap: 2px;
+}
+.toolbar :deep(.n-button) {
+  font-size: 11px;
+  padding: 0 6px;
+  height: 24px;
+}
+.toolbar :deep(.n-button .n-button__icon) {
+  margin-right: 2px;
 }
 
 /* ── 主区域 ── */
