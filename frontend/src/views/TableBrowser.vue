@@ -419,6 +419,7 @@ async function reload() {
     }
     statusText.value = `表 ${props.tableName} 已加载`
     await loadPreview()
+    await loadForeignKeys()
   } catch (e) {
     statusText.value = `加载表 ${props.tableName} 失败`
   } finally {
@@ -477,6 +478,75 @@ function saveIndexChanges() {
         await reload()
       } catch (e: any) {
         message.error('保存失败: ' + (e.message || ''))
+      }
+    },
+  })
+}
+
+// ── 外键管理 ─────────────────────────────────────
+const foreignKeys = ref<any[]>([])
+const fkLoading = ref(false)
+
+async function loadForeignKeys() {
+  if (!props.tableName) return
+  fkLoading.value = true
+  try {
+    const res: any = await api.getForeignKeys(props.connId, props.tableName, props.dbName || undefined)
+    if (res.success) foreignKeys.value = res.data || []
+  } finally {
+    fkLoading.value = false
+  }
+}
+
+// 添加外键对话框
+const showAddFK = ref(false)
+const newFK = ref({
+  column_name: '',
+  ref_table: '',
+  ref_column: 'id',
+  constraint_name: '',
+  on_delete: 'RESTRICT',
+  on_update: 'RESTRICT',
+})
+const columnsForFK = computed(() => editedColumns.value.map(c => ({ label: c.Field, value: c.Field })))
+
+async function doAddFK() {
+  if (!newFK.value.column_name || !newFK.value.ref_table) {
+    message.warning('请填写字段名和关联表')
+    return
+  }
+  try {
+    const res: any = await api.addForeignKey(props.connId, props.tableName, newFK.value, props.dbName || undefined)
+    if (res.success) {
+      message.success(res.message || '外键已添加')
+      showAddFK.value = false
+      newFK.value = { column_name: '', ref_table: '', ref_column: 'id', constraint_name: '', on_delete: 'RESTRICT', on_update: 'RESTRICT' }
+      await loadForeignKeys()
+    } else {
+      message.error(res.message || '添加失败')
+    }
+  } catch (e: any) {
+    message.error('添加外键失败: ' + (e.message || ''))
+  }
+}
+
+async function doDropFK(constraintName: string) {
+  dialog.warning({
+    title: '删除外键',
+    content: `确定要删除外键 "${constraintName}" 吗？`,
+    positiveText: '删除',
+    negativeText: '取消',
+    onPositiveClick: async () => {
+      try {
+        const res: any = await api.dropForeignKey(props.connId, props.tableName, constraintName, props.dbName || undefined)
+        if (res.success) {
+          message.success(`外键 ${constraintName} 已删除`)
+          await loadForeignKeys()
+        } else {
+          message.error(res.message || '删除失败')
+        }
+      } catch (e: any) {
+        message.error('删除外键失败: ' + (e.message || ''))
       }
     },
   })
@@ -660,6 +730,39 @@ onMounted(() => {
         </div>
       </n-tab-pane>
 
+      <!-- ═══════ 外键标签页 ═══════ -->
+      <n-tab-pane name="foreign-keys" tab="外键">
+        <div class="columns-toolbar">
+          <n-space size="small">
+            <n-button size="tiny" type="primary" @click="showAddFK = true" :disabled="!props.tableName">+ 添加外键</n-button>
+            <n-button size="tiny" @click="loadForeignKeys">刷新</n-button>
+          </n-space>
+        </div>
+        <n-data-table
+          :columns="[
+            { title: '约束名', key: 'constraint_name', width: 180 },
+            { title: '字段', key: 'column_name', width: 140 },
+            { title: '关联表', key: 'referenced_table_name', width: 160 },
+            { title: '关联字段', key: 'referenced_column_name', width: 140 },
+            { title: '更新规则', key: 'update_rule', width: 100 },
+            { title: '删除规则', key: 'delete_rule', width: 100 },
+            { title: '操作', key: '_actions', width: 80,
+              render: (r: any) => h('n-button', {
+                size: 'tiny',
+                type: 'error',
+                onClick: () => doDropFK(r.constraint_name),
+              }, '删除')
+            },
+          ]"
+          :data="foreignKeys"
+          :loading="fkLoading"
+          :bordered="true"
+          striped
+        />
+        <!-- 空状态 -->
+        <n-empty v-if="!fkLoading && foreignKeys.length === 0" description="暂无外键" style="margin-top: 20px" />
+      </n-tab-pane>
+
       <!-- ═══════ DDL 标签页 ═══════ -->
       <n-tab-pane name="ddl" tab="DDL">
         <div style="margin-bottom:8px">
@@ -692,6 +795,46 @@ onMounted(() => {
         />
       </n-tab-pane>
     </n-tabs>
+
+    <!-- 添加外键对话框 -->
+    <n-modal v-model:show="showAddFK" title="添加外键" preset="card" style="width: 460px" :mask-closable="false">
+      <n-form label-placement="left" label-width="100">
+        <n-form-item label="字段">
+          <n-select v-model:value="newFK.column_name" :options="columnsForFK" filterable placeholder="选择字段" />
+        </n-form-item>
+        <n-form-item label="关联表">
+          <n-input v-model:value="newFK.ref_table" placeholder="关联表名" />
+        </n-form-item>
+        <n-form-item label="关联字段">
+          <n-input v-model:value="newFK.ref_column" placeholder="关联字段 (默认 id)" />
+        </n-form-item>
+        <n-form-item label="约束名（可选）">
+          <n-input v-model:value="newFK.constraint_name" placeholder="留空自动生成" />
+        </n-form-item>
+        <n-form-item label="删除规则">
+          <n-select v-model:value="newFK.on_delete" :options="[
+            { label: 'RESTRICT (限制)', value: 'RESTRICT' },
+            { label: 'CASCADE (级联)', value: 'CASCADE' },
+            { label: 'SET NULL (置空)', value: 'SET NULL' },
+            { label: 'NO ACTION (无操作)', value: 'NO ACTION' },
+          ]" />
+        </n-form-item>
+        <n-form-item label="更新规则">
+          <n-select v-model:value="newFK.on_update" :options="[
+            { label: 'RESTRICT (限制)', value: 'RESTRICT' },
+            { label: 'CASCADE (级联)', value: 'CASCADE' },
+            { label: 'SET NULL (置空)', value: 'SET NULL' },
+            { label: 'NO ACTION (无操作)', value: 'NO ACTION' },
+          ]" />
+        </n-form-item>
+      </n-form>
+      <template #footer>
+        <n-space justify="end">
+          <n-button @click="showAddFK = false">取消</n-button>
+          <n-button type="primary" @click="doAddFK">添加</n-button>
+        </n-space>
+      </template>
+    </n-modal>
 
     <!-- 创建表对话框 -->
     <n-modal v-model:show="showCreateTable" title="创建新表" preset="card" style="width: 700px; max-height: 80vh;" :mask-closable="false">

@@ -409,3 +409,165 @@ def drop_column(
         return {"success": True, "message": f"列 {column_name} 已删除"}
     except Exception as e:
         return {"success": False, "message": str(e)}
+
+
+# ═══════════════════════════════════════════════════════════
+# 外键管理
+# ═══════════════════════════════════════════════════════════
+
+
+@router.get("/{conn_id}/{table_name}/foreign-keys")
+def get_foreign_keys(
+    conn_id: int,
+    table_name: str,
+    database: str = "",
+    schema: str = "",
+    storage: DBStorage = Depends(get_db_storage),
+    ops: DBOperations = Depends(get_db_ops),
+):
+    """获取表的所有外键"""
+    try:
+        conn_data = _get_conn_data(conn_id, storage)
+        db_type = conn_data.get("db_type", "MySQL")
+        db = database or conn_data.get("database", "")
+
+        if db_type == "MySQL":
+            sql = """
+                SELECT
+                    kcu.CONSTRAINT_NAME,
+                    kcu.COLUMN_NAME,
+                    kcu.REFERENCED_TABLE_NAME,
+                    kcu.REFERENCED_COLUMN_NAME,
+                    rc.UPDATE_RULE,
+                    rc.DELETE_RULE
+                FROM information_schema.KEY_COLUMN_USAGE kcu
+                JOIN information_schema.REFERENTIAL_CONSTRAINTS rc
+                    ON kcu.CONSTRAINT_NAME = rc.CONSTRAINT_NAME
+                    AND kcu.CONSTRAINT_SCHEMA = rc.CONSTRAINT_SCHEMA
+                WHERE kcu.TABLE_SCHEMA = %s
+                  AND kcu.TABLE_NAME = %s
+                  AND kcu.REFERENCED_TABLE_NAME IS NOT NULL
+            """
+            result = ops.execute_sql(conn_data, sql, params=[db, table_name], database=db)
+        elif db_type == "PostgreSQL":
+            schema_name = schema or "public"
+            sql = """
+                SELECT
+                    tc.constraint_name,
+                    kcu.column_name,
+                    ccu.table_name AS referenced_table_name,
+                    ccu.column_name AS referenced_column_name,
+                    rc.update_rule,
+                    rc.delete_rule
+                FROM information_schema.table_constraints tc
+                JOIN information_schema.key_column_usage kcu
+                    ON tc.constraint_name = kcu.constraint_name
+                    AND tc.table_schema = kcu.table_schema
+                JOIN information_schema.constraint_column_usage ccu
+                    ON tc.constraint_name = ccu.constraint_name
+                    AND tc.table_schema = ccu.table_schema
+                JOIN information_schema.referential_constraints rc
+                    ON tc.constraint_name = rc.constraint_name
+                    AND tc.table_schema = rc.constraint_schema
+                WHERE tc.constraint_type = 'FOREIGN KEY'
+                  AND tc.table_name = %s
+                  AND tc.table_schema = %s
+            """
+            result = ops.execute_sql(conn_data, sql, params=[table_name, schema_name], database=db)
+        else:
+            return {"success": False, "message": f"不支持的数据库类型: {db_type}"}
+
+        if not result.get("success"):
+            return {"success": False, "message": result.get("message", "查询失败")}
+
+        rows = result.get("data", {}).get("rows", [])
+        cols = result.get("data", {}).get("columns", [])
+        fks = []
+        for row in rows:
+            item = {}
+            for i, col in enumerate(cols):
+                item[col.lower()] = row[i] if i < len(row) else None
+            fks.append(item)
+        return {"success": True, "data": fks}
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
+
+@router.post("/{conn_id}/{table_name}/foreign-keys")
+def add_foreign_key(
+    conn_id: int,
+    table_name: str,
+    body: dict,
+    database: str = "",
+    schema: str = "",
+    storage: DBStorage = Depends(get_db_storage),
+    ops: DBOperations = Depends(get_db_ops),
+):
+    """添加外键约束"""
+    try:
+        conn_data = _get_conn_data(conn_id, storage)
+        db_type = conn_data.get("db_type", "MySQL")
+
+        column_name = body.get("column_name", "")
+        ref_table = body.get("ref_table", "")
+        ref_column = body.get("ref_column", "id")
+        constraint_name = body.get("constraint_name", f"fk_{table_name}_{column_name}")
+        on_delete = body.get("on_delete", "RESTRICT")
+        on_update = body.get("on_update", "RESTRICT")
+
+        if not column_name or not ref_table:
+            return {"success": False, "message": "缺少必要参数: column_name, ref_table"}
+
+        if db_type == "MySQL":
+            sql = (
+                f"ALTER TABLE `{table_name}` "
+                f"ADD CONSTRAINT `{constraint_name}` "
+                f"FOREIGN KEY (`{column_name}`) "
+                f"REFERENCES `{ref_table}` (`{ref_column}`) "
+                f"ON DELETE {on_delete} ON UPDATE {on_update}"
+            )
+        elif db_type == "PostgreSQL":
+            schema_name = schema or "public"
+            sql = (
+                f'ALTER TABLE "{schema_name}"."{table_name}" '
+                f'ADD CONSTRAINT "{constraint_name}" '
+                f'FOREIGN KEY ("{column_name}") '
+                f'REFERENCES "{schema_name}"."{ref_table}" ("{ref_column}") '
+                f"ON DELETE {on_delete} ON UPDATE {on_update}"
+            )
+        else:
+            return {"success": False, "message": f"不支持的数据库类型: {db_type}"}
+
+        ops.execute_sql(conn_data, sql, database=database or None)
+        return {"success": True, "message": f"外键 {constraint_name} 已添加"}
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
+
+@router.delete("/{conn_id}/{table_name}/foreign-keys/{constraint_name}")
+def drop_foreign_key(
+    conn_id: int,
+    table_name: str,
+    constraint_name: str,
+    database: str = "",
+    schema: str = "",
+    storage: DBStorage = Depends(get_db_storage),
+    ops: DBOperations = Depends(get_db_ops),
+):
+    """删除外键约束"""
+    try:
+        conn_data = _get_conn_data(conn_id, storage)
+        db_type = conn_data.get("db_type", "MySQL")
+
+        if db_type == "MySQL":
+            sql = f"ALTER TABLE `{table_name}` DROP FOREIGN KEY `{constraint_name}`"
+        elif db_type == "PostgreSQL":
+            schema_name = schema or "public"
+            sql = f'ALTER TABLE "{schema_name}"."{table_name}" DROP CONSTRAINT "{constraint_name}"'
+        else:
+            return {"success": False, "message": f"不支持的数据库类型: {db_type}"}
+
+        ops.execute_sql(conn_data, sql, database=database or None)
+        return {"success": True, "message": f"外键 {constraint_name} 已删除"}
+    except Exception as e:
+        return {"success": False, "message": str(e)}

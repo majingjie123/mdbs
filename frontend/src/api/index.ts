@@ -98,6 +98,12 @@ export const api = {
     http.get(`/tables/${connId}/${table}/columns`, { params: { database, schema } }) as Promise<ApiResponse<ColumnDetail[]>>,
   getTableIndexes: (connId: number, table: string, database?: string, schema?: string) =>
     http.get(`/tables/${connId}/${table}/indexes`, { params: { database, schema } }) as Promise<ApiResponse<any[]>>,
+  getForeignKeys: (connId: number, table: string, database?: string, schema?: string) =>
+    http.get(`/tables/${connId}/${table}/foreign-keys`, { params: { database, schema } }) as Promise<ApiResponse<any[]>>,
+  addForeignKey: (connId: number, table: string, body: any, database?: string, schema?: string) =>
+    http.post(`/tables/${connId}/${table}/foreign-keys`, body, { params: { database, schema } }) as Promise<ApiResponse<any>>,
+  dropForeignKey: (connId: number, table: string, constraintName: string, database?: string, schema?: string) =>
+    http.delete(`/tables/${connId}/${table}/foreign-keys/${constraintName}`, { params: { database, schema } }) as Promise<ApiResponse<any>>,
   getTableDDL: (connId: number, table: string, database?: string, schema?: string) =>
     http.get(`/tables/${connId}/${table}/ddl`, { params: { database, schema } }) as Promise<ApiResponse<string>>,
   getPrimaryKeys: (connId: number, table: string, database?: string, schema?: string) =>

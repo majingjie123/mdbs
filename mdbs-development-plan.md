@@ -153,7 +153,7 @@ TableBrowser.vue `doCreateTable()`:
 
 API: `POST /tables/{conn_id}/create`
 
-#### 3.2.2 外键关系管理（待开发）
+#### 3.2.2 外键关系管理（已完成）
 
 **后端 API 扩展:**
 
