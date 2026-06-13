@@ -430,6 +430,19 @@ async function loadDbObjects(connId: number, dbName: string, schemaName: string 
     })
   }
 
+  // 用户与权限文件夹 (仅 MySQL, 放到管理类最后)
+  if (connData?.db_type === 'MySQL') {
+    children.push({
+      label: '👤 用户与权限',
+      key: `${nodeKey}/users`,
+      isLeaf: false,
+      nodeType: 'folder',
+      connId,
+      dbName,
+      children: [],
+    })
+  }
+
   return children
 }
 
@@ -607,6 +620,9 @@ async function onExpand(node: TreeNode) {
       await loadTriggersIntoFolder(node)
     } else if (parts.some((p) => p === 'events')) {
       await loadEventsIntoFolder(node)
+    } else if (parts.some((p) => p === 'users')) {
+      // 用户与权限文件夹无子项, 直接打开
+      onDblClick(node)
     } else if (parts.some((p) => p === 'queries')) {
       await loadQueriesIntoFolder(node)
     } else {
@@ -722,6 +738,13 @@ function onDblClick(node: TreeNode) {
       connId: node.connId,
       eventName,
       dbName: node.dbName || '',
+    })
+  }
+
+  // 用户与权限文件夹 → 打开用户管理
+  if (type === 'folder' && node.key?.includes('/users')) {
+    store.openTab('user-manager', '👤 用户与权限', {
+      connId: node.connId,
     })
   }
 

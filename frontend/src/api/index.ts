@@ -163,6 +163,20 @@ export const api = {
   runBackupPlanNow: (planId: number) =>
     http.post(`/backup-plans/${planId}/run-now`) as Promise<ApiResponse>,
 
+  // ── 用户权限管理 ──
+  listUsers: (connId: number) =>
+    http.get(`/users/${connId}`) as Promise<ApiResponse<any[]>>,
+  getUserGrants: (connId: number, userName: string, host?: string) =>
+    http.get(`/users/${connId}/${encodeURIComponent(userName)}/grants`, { params: { host: host || '%' } }) as Promise<ApiResponse<string[]>>,
+  createUser: (connId: number, data: { user: string; host?: string; password?: string }) =>
+    http.post(`/users/${connId}/create-user`, data) as Promise<ApiResponse>,
+  dropUser: (connId: number, userName: string, host?: string) =>
+    http.delete(`/users/${connId}/${encodeURIComponent(userName)}`, { params: { host: host || '%' } }) as Promise<ApiResponse>,
+  grantPrivilege: (connId: number, data: { user: string; host?: string; database?: string; table?: string; privilege: string; with_grant?: boolean }) =>
+    http.post(`/users/${connId}/grant`, data) as Promise<ApiResponse>,
+  revokePrivilege: (connId: number, data: { user: string; host?: string; database?: string; table?: string; privilege: string }) =>
+    http.post(`/users/${connId}/revoke`, data) as Promise<ApiResponse>,
+
   // 表结构修改
   createTable: (connId: number, params: any) =>
     http.post(`/tables/${connId}/create`, params) as Promise<ApiResponse>,

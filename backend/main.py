@@ -27,6 +27,7 @@ from .routers import queries as queries_router  # type: ignore[import-not-found]
 from .routers import triggers as triggers_router
 from .routers import events as events_router
 from .routers import backup_plan as backup_plan_router
+from .routers import users as users_router
 
 app = FastAPI(
     title="MDBS",
@@ -57,6 +58,7 @@ app.include_router(queries_router.router)
 app.include_router(triggers_router.router)
 app.include_router(events_router.router)
 app.include_router(backup_plan_router.router)
+app.include_router(users_router.router)
 
 
 @app.on_event("startup")

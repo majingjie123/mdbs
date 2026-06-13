@@ -311,10 +311,37 @@ def drop_trigger(...):
 
 | 功能点 | 优先级 | 状态 | 技术方案 |
 |--------|--------|------|----------|
-| 用户列表 | P3 | ❌ 待开发 | 从 mysql.user / pg_roles 读取 |
-| 角色管理 | P3 | ❌ 待开发 | MySQL SHOW GRANTS |
-| 权限授予/回收 | P3 | ❌ 待开发 | GRANT / REVOKE |
-| 数据库授权 | P3 | ❌ 待开发 | GRANT ON db.* |
+| 用户列表 | P3 | ✅ 完成 | 从 mysql.user 读取 |
+| 角色管理 | P3 | ✅ 完成 | MySQL SHOW GRANTS 解析 |
+| 权限授予/回收 | P3 | ✅ 完成 | GRANT / REVOKE |
+| 数据库授权 | P3 | ✅ 完成 | GRANT ON db.* |
+
+### 6.2 开发细节
+
+#### 6.2.1 用户权限管理（已完成）
+
+**后端:**
+
+```python
+# backend/routers/users.py
+# API:
+# GET /users/{conn_id}        → 列出用户 + 权限摘要
+# GET /users/{conn_id}/{user}/grants → 单个用户详细权限
+# POST /users/{conn_id}/create-user  → 创建用户
+# DELETE /users/{conn_id}/{user}     → 删除用户
+# POST /users/{conn_id}/grant        → 授予权限
+# POST /users/{conn_id}/revoke       → 回收权限
+```
+
+**前端:**
+
+创建 `UserManager.vue`，功能：
+- 左侧用户列表（显示状态标签：正常/锁定）
+- 右侧显示选中用户的权限详情
+- 新建用户对话框（用户名、主机、密码）
+- 授予权限对话框（数据库、表、权限类型、WITH GRANT OPTION）
+- 删除用户（确认对话框，root 用户不可删除）
+- 侧边栏新增 `👤 用户与权限` 文件夹（仅 MySQL），双击直接打开用户管理
 
 ---
 
@@ -480,7 +507,7 @@ AppLayout.vue 菜单栏下方添加工具栏，带图标按钮和 hover 提示�
 | ER 图导出 | P2 | ✅ 完成 | Mermaid.js → HTML/PDF |
 | 连接池管理 | P2 | ✅ 部分 | 5min TTL 连接缓存 |
 | 交互式 ER 图查看器 | P3 | ❌ 待开发 | 前端 d3.js / vis.js |
-| 用户权限管理 | P3 | ❌ 待开发 | GRANT/REVOKE |
+| 用户权限管理 | P3 | ✅ 完成 | GRANT/REVOKE + 用户CRUD |
 | 数据库性能监控 | P3 | ❌ 待开发 | SHOW STATUS / pg_stat |
 | SQL 任务计划 | P3 | ❌ 待开发 | APScheduler |
 | 数据生成器 | P3 | ❌ 待开发 | 模拟数据填充 |

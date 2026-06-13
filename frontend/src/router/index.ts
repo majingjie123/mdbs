@@ -126,6 +126,14 @@ const router = createRouter({
         dbName: (route.query.db as string) || '',
       }),
     },
+    {
+      path: '/users/:connId',
+      name: 'user-manager',
+      component: () => import('../views/UserManager.vue'),
+      props: (route) => ({
+        connId: parseInt(route.params.connId as string),
+      }),
+    },
   ],
 })
 
