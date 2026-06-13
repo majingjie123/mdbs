@@ -169,6 +169,113 @@ def restore_backup(conn_id: int, req: RestoreRequest,
         return {"success": False, "message": f"恢复失败: {e}"}
 
 
+# ── 端点：预览备份文件 ───────────────────────────────────
+
+@router.get("/preview/{filename:path}")
+def preview_backup(filename: str):
+    """预览备份文件内容（解析 SQL 文件提取元数据）"""
+    _ensure_sync_logs_dir()
+
+    safe_name = os.path.basename(os.path.normpath(filename))
+    fpath = os.path.join(SYNC_LOGS_DIR, safe_name)
+
+    if not os.path.isfile(fpath):
+        return {"success": False, "message": f"备份文件不存在: {safe_name}"}
+
+    try:
+        stat = os.stat(fpath)
+        content_preview = ""
+        tables = []
+        total_inserts = 0
+        db_name = ""
+        has_structure = False
+        has_data = False
+        has_views = False
+        has_functions = False
+        has_triggers = False
+        has_events = False
+
+        with open(fpath, "r", encoding="utf-8", errors="ignore") as f:
+            # 读取前 100 行用于分析
+            for i, line in enumerate(f):
+                if i > 5000:
+                    break
+                stripped = line.strip()
+
+                if stripped.upper().startswith("USE `"):
+                    db_name = stripped.split("`")[1] if "`" in stripped else ""
+
+                if stripped.upper().startswith("CREATE TABLE"):
+                    has_structure = True
+                    table_name = ""
+                    if "`" in stripped:
+                        parts = stripped.split("`")
+                        table_name = parts[1] if len(parts) > 1 else ""
+                    elif " " in stripped:
+                        table_name = stripped.split()[-1]
+                    tables.append({"name": table_name, "type": "table"})
+
+                if stripped.upper().startswith("CREATE VIEW"):
+                    has_views = True
+                    view_name = stripped.split("`")[1] if "`" in stripped else ""
+                    tables.append({"name": view_name, "type": "view"})
+
+                if stripped.upper().startswith("CREATE FUNCTION") or stripped.upper().startswith("CREATE PROCEDURE"):
+                    has_functions = True
+
+                if stripped.upper().startswith("CREATE TRIGGER"):
+                    has_triggers = True
+
+                if stripped.upper().startswith("CREATE EVENT"):
+                    has_events = True
+
+                if stripped.upper().startswith("INSERT INTO"):
+                    has_data = True
+                    total_inserts += 1
+
+            # 获取内容预览（前 20 行）
+            f.seek(0)
+            first_lines = []
+            for i, line in enumerate(f):
+                if i >= 20:
+                    break
+                first_lines.append(line.rstrip("\n"))
+            content_preview = "\n".join(first_lines)
+
+        # 推断备份选项
+        options = []
+        if has_structure:
+            options.append("structure")
+        if has_data:
+            options.append("data")
+        if has_views:
+            options.append("views")
+        if has_functions:
+            options.append("functions")
+        if has_triggers:
+            options.append("triggers")
+        if has_events:
+            options.append("events")
+
+        return {
+            "success": True,
+            "data": {
+                "filename": safe_name,
+                "file_size": stat.st_size,
+                "file_size_display": f"{stat.st_size / 1024:.1f} KB" if stat.st_size < 1024 * 1024 else f"{stat.st_size / 1024 / 1024:.2f} MB",
+                "date": datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M:%S"),
+                "database": db_name,
+                "tables": tables,
+                "total_inserts": total_inserts,
+                "options": options,
+                "content_preview": content_preview,
+                "total_lines": max(1, sum(1 for _ in open(fpath, "r", encoding="utf-8", errors="ignore"))),
+            },
+        }
+    except Exception as e:
+        return {"success": False, "message": f"预览失败: {e}"}
+
+
 # ── 端点：列出备份文件 ─────────────────────────────────────
 
 @router.get("/{conn_id}/backups")

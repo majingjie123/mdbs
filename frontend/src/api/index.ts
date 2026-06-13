@@ -262,6 +262,8 @@ export const api = {
     http.get(`/backup/${connId}/backups`) as Promise<ApiResponse<any[]>>,
   backupDelete: (filename: string) =>
     http.delete(`/backup/backups/${encodeURIComponent(filename)}`) as Promise<ApiResponse>,
+  backupPreview: (filename: string) =>
+    http.get(`/backup/preview/${encodeURIComponent(filename)}`) as Promise<ApiResponse<any>>,
 
   // ── 导入 ───────────────────────────────────────────
 

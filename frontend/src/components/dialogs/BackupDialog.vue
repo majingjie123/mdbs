@@ -15,6 +15,9 @@ const emit = defineEmits<{
 
 const message = useMessage()
 const dialog = useDialog()
+const showPreview = ref(false)
+const previewData = ref<any>(null)
+const previewLoading = ref(false)
 const loading = ref(false)
 const activeTab = ref('backup')
 
@@ -66,8 +69,26 @@ const restoreDb = ref('')
 
 const fileColumns = [
   { title: '文件名', key: 'name', width: 200 },
-  { title: '大小', key: 'size_display', width: 100 },
-  { title: '日期', key: 'date', width: 160 },
+  { title: '大小', key: 'size_display', width: 80 },
+  { title: '日期', key: 'date', width: 140 },
+  {
+    title: '操作', key: 'actions', width: 130,
+    render: (r: any) => h('span', [
+      h('n-button', {
+        size: 'tiny',
+        quaternary: true,
+        type: 'info',
+        style: 'margin-right: 4px',
+        onClick: () => previewBackup(r.name),
+      }, '预览'),
+      h('n-button', {
+        size: 'tiny',
+        quaternary: true,
+        type: 'error',
+        onClick: () => deleteBackup(r.name),
+      }, '删除'),
+    ]),
+  },
 ]
 
 async function loadBackupList() {
@@ -147,6 +168,27 @@ async function deleteBackup(name: string) {
   })
 }
 
+// ── 预览备份 ──
+async function previewBackup(name: string) {
+  previewLoading.value = true
+  showPreview.value = true
+  previewData.value = null
+  try {
+    const res: any = await api.backupPreview(name)
+    if (res.success) {
+      previewData.value = res.data
+    } else {
+      message.error(res.message || '预览失败')
+      showPreview.value = false
+    }
+  } catch (e: any) {
+    message.error(e.message || '预览失败')
+    showPreview.value = false
+  } finally {
+    previewLoading.value = false
+  }
+}
+
 watch(() => props.visible, (v) => {
   if (v) {
     backupDb.value = props.dbName || ''
@@ -199,18 +241,7 @@ function close() {
           <n-form-item label="选择备份">
             <n-data-table
               v-if="backupFiles.length > 0"
-              :columns="[
-                ...fileColumns,
-                {
-                  title: '操作', key: 'actions', width: 80,
-                  render: (r: any) => h('n-button', {
-                    size: 'tiny',
-                    quaternary: true,
-                    type: 'error',
-                    onClick: () => deleteBackup(r.name),
-                  }, '删除'),
-                },
-              ]"
+              :columns="fileColumns"
               :data="backupFiles"
               :bordered="true"
               size="small"
@@ -254,4 +285,52 @@ function close() {
       </n-space>
     </template>
   </n-modal>
+
+  <!-- 预览抽屉 -->
+  <n-drawer v-model:show="showPreview" :width="600" placement="right">
+    <n-drawer-content title="备份文件预览" closable :loading="previewLoading">
+      <template v-if="previewData">
+        <n-descriptions size="small" bordered :column="2">
+          <n-descriptions-item label="文件名">{{ previewData.filename }}</n-descriptions-item>
+          <n-descriptions-item label="大小">{{ previewData.file_size_display }}</n-descriptions-item>
+          <n-descriptions-item label="创建时间">{{ previewData.date }}</n-descriptions-item>
+          <n-descriptions-item label="数据库">{{ previewData.database || '未知' }}</n-descriptions-item>
+          <n-descriptions-item label="总行数">{{ previewData.total_lines }}</n-descriptions-item>
+          <n-descriptions-item label="INSERT 条数">{{ previewData.total_inserts }}</n-descriptions-item>
+          <n-descriptions-item label="备份内容" :span="2">
+            <n-space>
+              <n-tag v-if="previewData.options.includes('structure')" size="small" type="info">表结构</n-tag>
+              <n-tag v-if="previewData.options.includes('data')" size="small" type="success">数据</n-tag>
+              <n-tag v-if="previewData.options.includes('views')" size="small" type="warning">视图</n-tag>
+              <n-tag v-if="previewData.options.includes('functions')" size="small" type="warning">函数/存储过程</n-tag>
+              <n-tag v-if="previewData.options.includes('triggers')" size="small" type="warning">触发器</n-tag>
+              <n-tag v-if="previewData.options.includes('events')" size="small" type="warning">事件</n-tag>
+            </n-space>
+          </n-descriptions-item>
+        </n-descriptions>
+
+        <n-h5 style="margin: 12px 0 8px">包含的表/视图</n-h5>
+        <n-data-table
+          v-if="previewData.tables && previewData.tables.length > 0"
+          :columns="[
+            { title: '名称', key: 'name' },
+            { title: '类型', key: 'type', width: 80,
+              render: (row: any) => h('n-tag', {
+                size: 'small',
+                type: row.type === 'view' ? 'warning' : 'info',
+              }, row.type === 'view' ? '视图' : '表'),
+            },
+          ]"
+          :data="previewData.tables"
+          size="small"
+          bordered
+          :max-height="200"
+        />
+        <n-empty v-else description="未检测到表/视图" />
+
+        <n-h5 style="margin: 12px 0 8px">文件头部预览（前 20 行）</n-h5>
+        <n-code :code="previewData.content_preview" language="sql" style="max-height: 200px; overflow: auto" />
+      </template>
+    </n-drawer-content>
+  </n-drawer>
 </template>
