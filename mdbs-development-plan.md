@@ -37,7 +37,7 @@
 | 常用 SQL 片段收藏 | P0 | ✅ 完成 | localStorage 存储 + SnippetPanel |
 | 多个查询结果分屏 | P1 | ❌ 待开发 | 多结果标签页 |
 | 结果中新增/删除行 | P0 | ✅ 完成 | 行操作按钮 + 确认弹窗 |
-| 自动保存草稿 | P0 | ❌ 待开发 | localStorage 自动保存 |
+| 自动保存草稿 | P0 | ✅ 完成 | localStorage 1.5s 防抖自动保存 |
 | 括号匹配高亮 | P2 | ❌ 待开发 | CodeMirror 插件 |
 | JOIN 智能补全 | P2 | ❌ 待开发 | 解析 SQL 上下文 |
 

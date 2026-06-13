@@ -27,6 +27,40 @@ const dialog = useDialog()
 const sqlText = ref(props.initialSql || `SELECT 1`)
 const result = ref<ExecResult | null>(null)
 const sqlEditorRef = ref<InstanceType<typeof SqlEditor> | null>(null)
+
+// ── 自动保存草稿 ──
+const draftKey = computed(() => `sql_draft_${props.connId}_${props.dbName || ''}`)
+let _draftTimer: ReturnType<typeof setTimeout> | null = null
+const draftRestored = ref(false)
+
+watch(sqlText, (val) => {
+  if (_draftTimer) clearTimeout(_draftTimer)
+  if (!val.trim() || val === `SELECT 1`) return // 不保存默认值
+  _draftTimer = setTimeout(() => {
+    try {
+      localStorage.setItem(draftKey.value, val)
+    } catch { /* ignore */ }
+  }, 1500) // 1.5s 防抖
+})
+
+function loadDraft() {
+  if (props.initialSql) return // 有初始 SQL 时不恢复草稿
+  try {
+    const saved = localStorage.getItem(draftKey.value)
+    if (saved && saved.trim()) {
+      sqlText.value = saved
+      draftRestored.value = true
+      setTimeout(() => { draftRestored.value = false }, 4000)
+    }
+  } catch { /* ignore */ }
+}
+
+function clearDraft() {
+  try {
+    localStorage.removeItem(draftKey.value)
+  } catch { /* ignore */ }
+}
+
 const running = ref(false)
 const error = ref('')
 const abortController = ref<AbortController | null>(null)
@@ -165,6 +199,7 @@ function clearHistory() {
 }
 
 onMounted(loadHistory)
+onMounted(loadDraft)
 
 // ── 分页 ──
 const page = ref(1)
@@ -533,6 +568,7 @@ async function runQuery() {
       _modifiedMap.clear()
       _cellVersion.value++
       addHistory(sqlText.value)
+      clearDraft()
       nextTick(() => updateScrollButtons())
     } else {
       error.value = res.message || '执行失败'
@@ -561,7 +597,7 @@ function stopQuery() {
 }
 
 
-function clearSql() { sqlText.value = ''; error.value = '' }
+function clearSql() { sqlText.value = ''; error.value = ''; clearDraft() }
 
 function formatSql() {
   if (sqlEditorRef.value) {
@@ -1058,7 +1094,9 @@ async function doSaveQuery(overwrite?: boolean) {
     <!-- SQL 编辑器 -->
     <div class="editor-panel" :style="{ height: splitRatio + '%' }">
       <div class="editor-toolbar">
-        <span class="toolbar-title">SQL 查询 <span class="shortcut-hint">Ctrl+Enter</span></span>
+        <span class="toolbar-title">SQL 查询 <span class="shortcut-hint">Ctrl+Enter</span>
+          <n-tag v-if="draftRestored" size="tiny" type="warning" style="margin-left: 6px;">已恢复草稿</n-tag>
+        </span>
         <n-space size="small">
           <n-tag v-if="props.dbName" type="info" size="small">{{ props.dbName }}</n-tag>
 
