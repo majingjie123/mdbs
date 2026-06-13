@@ -5,6 +5,8 @@ import { useMessage, useDialog } from 'naive-ui'
 import { useAppStore } from '../stores/app'
 import type { DataTableColumn, FormInst } from 'naive-ui'
 import { api } from '../api'
+import { DEFAULT_SHORTCUTS, loadShortcuts, saveShortcuts, resetShortcuts } from '../composables/useShortcuts'
+import type { ShortcutDef } from '../composables/useShortcuts'
 
 const router = useRouter()
 const store = useAppStore()
@@ -229,6 +231,71 @@ const currentTheme = ref('dark')
 const fontFamily = ref('Cascadia Code, Fira Code, Consolas, monospace')
 const fontSize = ref(13)
 
+// ── 快捷键设置 ──
+const shortcutDefs = ref<ShortcutDef[]>(DEFAULT_SHORTCUTS)
+const userShortcuts = ref<Record<string, string>>(loadShortcuts())
+const editingShortcutId = ref<string | null>(null)
+const editingShortcutValue = ref('')
+const shortcutRecordTimer = ref<any>(null)
+
+function getShortcutKey(id: string): string {
+  return userShortcuts.value[id] || shortcutDefs.value.find(s => s.id === id)?.defaultKey || ''
+}
+
+function startEditShortcut(id: string) {
+  editingShortcutId.value = id
+  editingShortcutValue.value = getShortcutKey(id)
+}
+
+function recordKeydown(e: KeyboardEvent) {
+  e.preventDefault()
+  e.stopPropagation()
+  if (e.key === 'Escape') {
+    editingShortcutId.value = null
+    return
+  }
+  if (e.key === 'Enter' && editingShortcutValue.value) {
+    // 保存当前值
+    if (editingShortcutId.value) {
+      userShortcuts.value[editingShortcutId.value] = editingShortcutValue.value
+      saveShortcuts(userShortcuts.value)
+      message.success(`快捷键 "${shortcutDefs.value.find(s => s.id === editingShortcutId.value)?.label}" 已更新`)
+    }
+    editingShortcutId.value = null
+    return
+  }
+  const parts: string[] = []
+  if (e.ctrlKey || e.metaKey) parts.push('Mod')
+  if (e.altKey) parts.push('Alt')
+  if (e.shiftKey) parts.push('Shift')
+  if (e.key && !['Control', 'Alt', 'Shift', 'Meta'].includes(e.key)) {
+    const k = e.key.length === 1 ? e.key.toUpperCase() : e.key
+    parts.push(k)
+  }
+  if (parts.length > 0) {
+    editingShortcutValue.value = parts.join('-')
+  }
+}
+
+function saveAllShortcuts() {
+  saveShortcuts(userShortcuts.value)
+  message.success('快捷键设置已保存')
+}
+
+function doResetShortcuts() {
+  dialog.warning({
+    title: '重置快捷键',
+    content: '确定要重置所有快捷键为默认值吗？',
+    positiveText: '确认',
+    negativeText: '取消',
+    onPositiveClick: () => {
+      resetShortcuts()
+      userShortcuts.value = {}
+      message.success('已重置为默认快捷键')
+    },
+  })
+}
+
 // 保存设置
 function saveSettings() {
   const settings = {
@@ -390,6 +457,45 @@ onMounted(() => {
             </n-space>
           </template>
         </n-modal>
+      </n-tab-pane>
+
+      <!-- 快捷键设置 -->
+      <n-tab-pane name="shortcuts" tab="快捷键">
+        <div style="padding: 16px 0; max-width: 600px;">
+          <n-space justify="space-between" style="margin-bottom: 16px;">
+            <p style="margin: 0; color: var(--color-text-secondary);">点击快捷键组合进行编辑，按 Esc 取消，按 Enter 保存</p>
+            <n-space>
+              <n-button size="tiny" @click="doResetShortcuts">重置为默认</n-button>
+              <n-button size="tiny" type="primary" @click="saveAllShortcuts">保存快捷键</n-button>
+            </n-space>
+          </n-space>
+          <n-list bordered>
+            <n-list-item v-for="def in shortcutDefs" :key="def.id">
+              <n-thing>
+                <template #header>{{ def.label }}</template>
+                <template #description>{{ def.description }}</template>
+              </n-thing>
+              <template #suffix>
+                <div v-if="editingShortcutId === def.id" style="display: flex; align-items: center; gap: 4px;">
+                  <input
+                    :value="editingShortcutValue"
+                    @keydown="recordKeydown"
+                    placeholder="按下快捷键..."
+                    style="width: 160px; padding: 4px 8px; border: 1px solid var(--color-accent); border-radius: 3px; background: var(--bg-input); color: inherit; font-family: monospace; font-size: 12px; text-align: center;"
+                    autofocus
+                  />
+                </div>
+                <n-tag
+                  v-else
+                  style="cursor: pointer; font-family: monospace;"
+                  @click="startEditShortcut(def.id)"
+                >
+                  {{ getShortcutKey(def.id) }}
+                </n-tag>
+              </template>
+            </n-list-item>
+          </n-list>
+        </div>
       </n-tab-pane>
 
       <!-- 关于 -->
