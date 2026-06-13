@@ -147,6 +147,22 @@ export const api = {
   dropEvent: (connId: number, eventName: string, database?: string) =>
     http.delete(`/events/${connId}/${encodeURIComponent(eventName)}`, { params: { database } }) as Promise<ApiResponse>,
 
+  // ── 备份计划管理 ──
+  listBackupPlans: (connId?: number) =>
+    http.get('/backup-plans', { params: { conn_id: connId } }) as Promise<ApiResponse<any[]>>,
+  getBackupPlan: (planId: number) =>
+    http.get(`/backup-plans/${planId}`) as Promise<ApiResponse>,
+  createBackupPlan: (data: any) =>
+    http.post('/backup-plans', data) as Promise<ApiResponse<{ id: number }>>,
+  updateBackupPlan: (planId: number, data: any) =>
+    http.put(`/backup-plans/${planId}`, data) as Promise<ApiResponse>,
+  deleteBackupPlan: (planId: number) =>
+    http.delete(`/backup-plans/${planId}`) as Promise<ApiResponse>,
+  toggleBackupPlan: (planId: number, enable: boolean) =>
+    http.post(`/backup-plans/${planId}/toggle`, { enable }) as Promise<ApiResponse>,
+  runBackupPlanNow: (planId: number) =>
+    http.post(`/backup-plans/${planId}/run-now`) as Promise<ApiResponse>,
+
   // 表结构修改
   createTable: (connId: number, params: any) =>
     http.post(`/tables/${connId}/create`, params) as Promise<ApiResponse>,

@@ -159,6 +159,24 @@ class DBStorage:
                 )
             ''')
 
+            # 10. 创建备份计划表
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS backup_plans (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    conn_id INTEGER NOT NULL,
+                    name TEXT NOT NULL,
+                    database TEXT NOT NULL,
+                    schedule_type TEXT NOT NULL DEFAULT 'daily',
+                    schedule_value TEXT NOT NULL DEFAULT '02:00',
+                    options TEXT DEFAULT '["structure","data"]',
+                    enabled INTEGER DEFAULT 1,
+                    last_run TEXT,
+                    next_run TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+            ''')
+
             conn.commit()
 
     def save_workbench_log(self, script_path, content):
@@ -558,4 +576,67 @@ class DBStorage:
         """删除保存的查询"""
         with sqlite3.connect(self._db_path) as conn:
             conn.execute('DELETE FROM saved_queries WHERE id=?', (query_id,))
+            conn.commit()
+
+    # ── 备份计划管理 ──
+
+    def list_backup_plans(self, conn_id=None):
+        """列出备份计划"""
+        with sqlite3.connect(self._db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            if conn_id:
+                rows = conn.execute('SELECT * FROM backup_plans WHERE conn_id=? ORDER BY created_at DESC', (conn_id,)).fetchall()
+            else:
+                rows = conn.execute('SELECT * FROM backup_plans ORDER BY created_at DESC').fetchall()
+            return [dict(r) for r in rows]
+
+    def get_backup_plan(self, plan_id):
+        """获取单个备份计划"""
+        with sqlite3.connect(self._db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute('SELECT * FROM backup_plans WHERE id=?', (plan_id,)).fetchone()
+            return dict(row) if row else None
+
+    def save_backup_plan(self, data):
+        """新增或更新备份计划"""
+        now = datetime.now().isoformat(timespec='seconds')
+        if data.get('id'):
+            plan_id = data.pop('id')
+            data['updated_at'] = now
+            import json
+            if isinstance(data.get('options'), (list, tuple)):
+                data['options'] = json.dumps(data['options'])
+            sets = ', '.join(f'{k}=?' for k in data.keys())
+            params = list(data.values()) + [plan_id]
+            with sqlite3.connect(self._db_path) as conn:
+                conn.execute(f'UPDATE backup_plans SET {sets} WHERE id=?', params)
+                conn.commit()
+            return plan_id
+        else:
+            data.pop('id', None)
+            data['created_at'] = now
+            data['updated_at'] = now
+            import json
+            if isinstance(data.get('options'), (list, tuple)):
+                data['options'] = json.dumps(data['options'])
+            cols = ', '.join(data.keys())
+            placeholders = ', '.join('?' for _ in data)
+            params = list(data.values())
+            with sqlite3.connect(self._db_path) as conn:
+                cur = conn.cursor()
+                cur.execute(f'INSERT INTO backup_plans ({cols}) VALUES ({placeholders})', params)
+                conn.commit()
+                return cur.lastrowid
+
+    def delete_backup_plan(self, plan_id):
+        """删除备份计划"""
+        with sqlite3.connect(self._db_path) as conn:
+            conn.execute('DELETE FROM backup_plans WHERE id=?', (plan_id,))
+            conn.commit()
+
+    def update_backup_plan_run_time(self, plan_id, status='success'):
+        """更新计划最后运行时间和下次运行时间"""
+        now = datetime.now().isoformat(timespec='seconds')
+        with sqlite3.connect(self._db_path) as conn:
+            conn.execute('UPDATE backup_plans SET last_run=?, updated_at=? WHERE id=?', (now, now, plan_id))
             conn.commit()

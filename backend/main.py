@@ -25,7 +25,8 @@ from .routers import sync as sync_router  # type: ignore[import-not-found]
 from .routers import ai as ai_router  # type: ignore[import-not-found]
 from .routers import queries as queries_router  # type: ignore[import-not-found]
 from .routers import triggers as triggers_router
-from .routers import events as events_router  # type: ignore[import-not-found]
+from .routers import events as events_router
+from .routers import backup_plan as backup_plan_router
 
 app = FastAPI(
     title="MDBS",
@@ -55,6 +56,13 @@ app.include_router(sync_router.router)
 app.include_router(queries_router.router)
 app.include_router(triggers_router.router)
 app.include_router(events_router.router)
+app.include_router(backup_plan_router.router)
+
+
+@app.on_event("startup")
+def startup():
+    """应用启动时初始化备份调度器"""
+    backup_plan_router.init_scheduler()
 
 
 @app.on_event("shutdown")

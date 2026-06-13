@@ -117,6 +117,15 @@ const router = createRouter({
         schemaName: (route.query.schema as string) || '',
       }),
     },
+    {
+      path: '/backup-plans/:connId',
+      name: 'backup-plan-manager',
+      component: () => import('../views/BackupPlanManager.vue'),
+      props: (route) => ({
+        connId: parseInt(route.params.connId as string),
+        dbName: (route.query.db as string) || '',
+      }),
+    },
   ],
 })
 
