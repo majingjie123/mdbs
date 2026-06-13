@@ -181,6 +181,14 @@ export const api = {
   analyzeIndex: (connId: number, data: { sql: string; database?: string }) =>
     http.post(`/index-advisor/analyze/${connId}`, data) as Promise<ApiResponse<any>>,
 
+  // ── 慢查询日志 ──
+  getSlowQuerySettings: (connId: number) =>
+    http.get(`/slow-queries/${connId}/settings`) as Promise<ApiResponse<any>>,
+  getTopSlowQueries: (connId: number, limit?: number) =>
+    http.get(`/slow-queries/${connId}/top`, { params: { limit: limit || 20 } }) as Promise<ApiResponse<any>>,
+  toggleSlowLog: (connId: number, data: { enable: boolean; long_query_time?: number }) =>
+    http.post(`/slow-queries/${connId}/toggle-slow-log`, data) as Promise<ApiResponse>,
+
   // 表结构修改
   createTable: (connId: number, params: any) =>
     http.post(`/tables/${connId}/create`, params) as Promise<ApiResponse>,

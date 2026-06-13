@@ -134,6 +134,14 @@ const router = createRouter({
         connId: parseInt(route.params.connId as string),
       }),
     },
+    {
+      path: '/slow-queries/:connId',
+      name: 'slow-query-manager',
+      component: () => import('../views/SlowQueryManager.vue'),
+      props: (route) => ({
+        connId: parseInt(route.params.connId as string),
+      }),
+    },
   ],
 })
 

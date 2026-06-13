@@ -596,8 +596,30 @@ async function onExpand(node: TreeNode) {
 
   try {
     if (topLevel.startsWith('conn-') && parts.length === 1) {
-      // 连接 → 加载数据库
-      node.children = await loadDatabases(node.connId!, node.key)
+      // 连接 → 加载数据库 + 管理工具
+      const dbs = await loadDatabases(node.connId!, node.key)
+      const connData = store.connections.find((c) => c.id === node.connId)
+      // 追加连接级管理工具
+      const mgmtItems: TreeNode[] = []
+      if (connData?.db_type === 'MySQL') {
+        mgmtItems.push({
+          label: '🐢 慢查询日志',
+          key: `${node.key}/slow-query`,
+          isLeaf: false,
+          nodeType: 'folder',
+          connId: node.connId,
+          children: [],
+        })
+      }
+      mgmtItems.push({
+        label: '📦 备份计划',
+        key: `${node.key}/backup-plans`,
+        isLeaf: false,
+        nodeType: 'folder',
+        connId: node.connId,
+        children: [],
+      })
+      node.children = [...dbs, ...mgmtItems]
     } else if (parts.some((p) => p.startsWith('db-')) && parts.length === 2) {
       // 数据库 → 检查是否是 PostgreSQL 需要加载 schema
       const connData = store.connections.find((c) => c.id === node.connId)
@@ -622,6 +644,12 @@ async function onExpand(node: TreeNode) {
       await loadEventsIntoFolder(node)
     } else if (parts.some((p) => p === 'users')) {
       // 用户与权限文件夹无子项, 直接打开
+      onDblClick(node)
+    } else if (parts.some((p) => p === 'slow-query')) {
+      // 慢查询日志文件夹无子项, 直接打开
+      onDblClick(node)
+    } else if (parts.some((p) => p === 'backup-plans')) {
+      // 备份计划文件夹无子项, 直接打开
       onDblClick(node)
     } else if (parts.some((p) => p === 'queries')) {
       await loadQueriesIntoFolder(node)
@@ -744,6 +772,20 @@ function onDblClick(node: TreeNode) {
   // 用户与权限文件夹 → 打开用户管理
   if (type === 'folder' && node.key?.includes('/users')) {
     store.openTab('user-manager', '👤 用户与权限', {
+      connId: node.connId,
+    })
+  }
+
+  // 慢查询日志文件夹 → 打开慢查询管理
+  if (type === 'folder' && node.key?.includes('/slow-query')) {
+    store.openTab('slow-query-manager', '🐢 慢查询日志', {
+      connId: node.connId,
+    })
+  }
+
+  // 备份计划文件夹 → 打开备份计划管理
+  if (type === 'folder' && node.key?.includes('/backup-plans')) {
+    store.openTab('backup-plan-manager', '📦 备份计划', {
       connId: node.connId,
     })
   }
