@@ -731,6 +731,99 @@ function formatSql() {
 // ── EXPLAIN 执行计划 ──
 const explainResult = ref('')
 const showExplain = ref(false)
+const explainTab = ref<'tree' | 'table' | 'raw'>('tree')
+const explainTreeData = ref<any[]>([])
+const explainTableData = ref<any[]>([])
+const explainTableCols = ref<string[]>([])
+
+function parseExplainJson(json: any) {
+  // MySQL EXPLAIN FORMAT=JSON → 树形结构
+  if (!json) return
+
+  // 表格式数据（降级展示）
+  const tableRows: any[] = []
+  const tableCols: string[] = []
+
+  function buildTreeNode(node: any, path: string[] = []): any {
+    if (!node) return null
+    const label = node.Select_type || node.access_type || node.Query_block || node.operation || 'QUERY'
+    const table = node.table_name || node.Table || ''
+    const key = node.key || node.Key || ''
+    const rows = node.rows || node.Rows || 0
+    const cost = node.cost_info?.query_cost ?? node.query_cost ?? ''
+    const filtered = node.filtered || node.Filtered || ''
+    const extra = node.Extra || node.attached_condition || ''
+
+    const details: string[] = []
+    if (table) details.push(`📋 ${table}`)
+    if (key) details.push(`🔑 ${key}`)
+    if (rows) details.push(`📊 ${rows} 行`)
+    if (cost) details.push(`💰 成本 ${cost}`)
+    if (filtered) details.push(`🎯 ${filtered}%`)
+    if (extra) details.push(`📌 ${extra}`)
+
+    // 加到表格式数据
+    tableRows.push({
+      id: path.join('.'),
+      select_type: label,
+      table,
+      type: node.access_type || node.type || '',
+      possible_keys: (node.possible_keys || []).join(', '),
+      key,
+      key_len: node.key_length || node.key_len || '',
+      ref: node.ref || '',
+      rows,
+      filtered,
+      extra,
+      cost,
+    })
+
+    // 子节点
+    const children: any[] = []
+    // MySQL JSON 格式嵌套结构
+    const nesting_keys = ['nested_loop', 'union_result', 'sub_select', 'query_block', 'table_dependencies', 'materialized_from_subquery', 'table', 'attached_subqueries']
+    for (const key of nesting_keys) {
+      const val = node[key]
+      if (Array.isArray(val)) {
+        val.forEach((v: any, i: number) => {
+          const child = buildTreeNode(v, [...path, `${key}[${i}]`])
+          if (child) children.push(child)
+        })
+      } else if (val && typeof val === 'object') {
+        const child = buildTreeNode(val, [...path, key])
+        if (child) children.push(child)
+      }
+    }
+
+    return {
+      label: `${label}${table ? ` — ${table}` : ''}`,
+      key: path.join('.'),
+      isLeaf: children.length === 0,
+      children: children.length > 0 ? children : undefined,
+      detail: details.join(' | '),
+    }
+  }
+
+  // 设置列
+  if (tableRows.length > 0) {
+    Object.keys(tableRows[0]).forEach(k => { if (!tableCols.includes(k)) tableCols.push(k) })
+  }
+  explainTableCols.value = tableCols
+  explainTableData.value = tableRows
+
+  // 解析顶层
+  const root = buildTreeNode(json.query_block || json, ['root'])
+  explainTreeData.value = root ? [root] : []
+}
+
+// 自定义渲染 EXPLAIN 树节点
+function renderExplainNode(info: { option: any }) {
+  const node = info.option
+  return h('span', { style: 'white-space: nowrap; display: flex; align-items: center; gap: 6px;' }, [
+    h('span', node.label),
+    node.detail ? h('span', { style: 'color: var(--color-text-muted); font-size: 11px; margin-left: 8px;' }, node.detail) : null,
+  ])
+}
 
 async function runExplain() {
   if (!sqlText.value.trim()) {
@@ -773,6 +866,7 @@ async function runExplain() {
           ? JSON.parse(res.data.rows[0][0])
           : res.data.rows[0]
         explainResult.value = JSON.stringify(json, null, 2)
+        parseExplainJson(json)
       } catch {
         explainResult.value = res.data.rows[0]?.[0] || JSON.stringify(res.data, null, 2)
       }
@@ -1507,12 +1601,44 @@ async function doSaveQuery(overwrite?: boolean) {
     <n-empty v-else-if="result && !result.columns.length" description="查询执行成功，无返回数据" />
 
     <!-- EXPLAIN 结果面板 -->
-    <n-modal v-model:show="showExplain" title="EXPLAIN 执行计划" preset="card" style="width: 800px; max-height: 80vh;" :mask-closable="true">
-      <n-spin :show="running">
-        <n-pre style="max-height: 500px; overflow: auto; background: #1e1e1e; padding: 12px; border-radius: 4px;">
-          {{ explainResult || '正在执行...' }}
-        </n-pre>
-      </n-spin>
+    <n-modal v-model:show="showExplain" title="EXPLAIN 执行计划" preset="card" style="width: 900px; max-height: 85vh;" :mask-closable="true">
+      <n-tabs v-model:value="explainTab" type="line" size="small">
+        <n-tab-pane name="tree" tab="🌳 执行树">
+          <n-spin :show="running">
+            <div v-if="explainTreeData.length > 0" style="max-height: 500px; overflow: auto; padding: 8px 0;">
+              <n-tree
+                :data="explainTreeData"
+                :default-expanded-keys="['root']"
+                block-line
+                :render-label="renderExplainNode"
+                style="font-size: 13px;"
+              />
+            </div>
+            <n-empty v-else-if="!running" description="无法解析为树形结构，请切换到其他视图" />
+          </n-spin>
+        </n-tab-pane>
+        <n-tab-pane name="table" tab="📊 表格视图">
+          <n-spin :show="running">
+            <n-data-table
+              v-if="explainTableData.length > 0"
+              :columns="explainTableCols.map(col => ({ title: col, key: col, ellipsis: true }))"
+              :data="explainTableData"
+              :bordered="true"
+              striped
+              :max-height="500"
+              size="small"
+            />
+            <n-empty v-else-if="!running" description="暂无表格数据" />
+          </n-spin>
+        </n-tab-pane>
+        <n-tab-pane name="raw" tab="📄 原始 JSON">
+          <n-spin :show="running">
+            <n-pre style="max-height: 500px; overflow: auto; background: #1e1e1e; padding: 12px; border-radius: 4px; font-size: 12px;">
+              {{ explainResult || (running ? '正在执行...' : '暂无数据') }}
+            </n-pre>
+          </n-spin>
+        </n-tab-pane>
+      </n-tabs>
       <template #footer>
         <n-space justify="end">
           <n-button @click="copyExplainResult">复制结果</n-button>
