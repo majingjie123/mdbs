@@ -34,9 +34,9 @@
 | 数据筛选/过滤 | P1 | ✅ 完成 | 全局文本过滤 |
 | 列头排序 | P1 | ✅ 完成 | n-data-table sorter |
 | EXPLAIN 执行计划 | P1 | ✅ 完成 | 弹窗展示 |
-| 常用 SQL 片段收藏 | P0 | ❌ 待开发 | localStorage 存储 |
+| 常用 SQL 片段收藏 | P0 | ✅ 完成 | localStorage 存储 + SnippetPanel |
 | 多个查询结果分屏 | P1 | ❌ 待开发 | 多结果标签页 |
-| 结果中新增/删除行 | P0 | ❌ 待开发 | 行操作按钮 |
+| 结果中新增/删除行 | P0 | ✅ 完成 | 行操作按钮 + 确认弹窗 |
 | 自动保存草稿 | P0 | ❌ 待开发 | localStorage 自动保存 |
 | 括号匹配高亮 | P2 | ❌ 待开发 | CodeMirror 插件 |
 | JOIN 智能补全 | P2 | ❌ 待开发 | 解析 SQL 上下文 |
@@ -52,32 +52,18 @@ SqlEditor.vue 中使用 CodeMirror 6：
 - `parseTablePrefix()` — 支持 `表名.列名` 补全
 - `loadSchema()` — 异步加载所有表的列元数据（分批 5 个并发）
 
-#### 1.2.2 SQL 片段收藏（待开发）
+#### 1.2.2 SQL 片段收藏（已完成）
 
-**方案**: 使用 localStorage 存储常用 SQL 片段，SqlEditor 或 SQLWorkbench 中嵌入片段面板。
+**前端实现**: `frontend/src/components/SnippetPanel.vue`
 
-```typescript
-// 片段数据结构
-interface SqlSnippet {
-  id: string
-  name: string
-  sql: string
-  description: string
-  createdAt: string
-}
-
-// 存储 key
-const SNIPPETS_KEY = 'mdbs_sql_snippets'
-
-// 在 SQL 工具栏添加片段按钮，点击弹出片段选择器
-// 选中的片段插入到编辑器光标位置
-```
-
-**测试用例:**
-- 保存当前 SQL 为片段
-- 从片段列表选择插入编辑器
-- 删除片段
-- 搜索片段
+- 使用 localStorage 存储，key: `mdbs_sql_snippets`
+- 在 SQLWorkbench 编辑器工具栏添加"📋 片段"按钮
+- 点击打开右侧片段面板，显示所有已保存的 SQL 片段
+- 支持搜索（按名称/SQL/描述过滤）
+- 点击片段自动插入到编辑器光标处
+- "➕ 新增"按钮：将当前编辑器内容保存为新片段（含名称和描述）
+- 编辑/删除已有片段
+- 与查询历史面板共存，左右独立开关
 
 #### 1.2.3 多个查询结果分屏（待开发）
 

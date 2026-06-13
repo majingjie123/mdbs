@@ -3,6 +3,7 @@ import { ref, computed, h, shallowRef, markRaw, nextTick, onMounted, onUnmounted
 import { api, ExecResult } from '../api'
 import { useMessage, useDialog } from 'naive-ui'
 import SqlEditor from '../components/SqlEditor.vue'
+import SnippetPanel from '../components/SnippetPanel.vue'
 import AIAssistantPanel from '../components/AIAssistantPanel.vue'
 const props = withDefaults(defineProps<{
   connId?: number
@@ -76,6 +77,8 @@ const queryHistory = ref<{ sql: string; time: string }[]>([])
 const favQueries = ref<{ sql: string; name: string }[]>([])
 const historySearch = ref('')
 const showHistoryPanel = ref(false)
+const snippetPanelRef = ref<InstanceType<typeof SnippetPanel> | null>(null)
+const showSnippetPanel = ref(false)
 
 const filteredHistory = computed(() => {
   if (!historySearch.value.trim()) return queryHistory.value
@@ -148,6 +151,12 @@ function deleteFav(item: { sql: string }) {
   favQueries.value = favQueries.value.filter(f => f.sql !== item.sql)
   localStorage.setItem(favHistoryKey.value, JSON.stringify(favQueries.value))
   message.success('已删除收藏')
+}
+
+// ── SQL 片段 — 插入到编辑器 ──
+function insertSnippet(sql: string) {
+  // 追加到编辑器当前内容后面（或替换选中？这里追加）
+  sqlText.value = sqlText.value ? `${sqlText.value}\n${sql}` : sql
 }
 
 function clearHistory() {
@@ -1083,6 +1092,9 @@ async function doSaveQuery(overwrite?: boolean) {
           <n-button size="tiny" @click="showHistoryPanel = !showHistoryPanel" :type="showHistoryPanel ? 'info' : 'default'">
             📜 历史
           </n-button>
+          <n-button size="tiny" @click="showSnippetPanel = !showSnippetPanel; if (showSnippetPanel) snippetPanelRef?.setCurrentSql(sqlText)" :type="showSnippetPanel ? 'info' : 'default'">
+            📋 片段
+          </n-button>
         </n-space>
       </div>
 
@@ -1129,6 +1141,13 @@ async function doSaveQuery(overwrite?: boolean) {
             <n-empty v-if="filteredHistory.length === 0 && favQueries.length === 0" description="暂无历史记录" />
           </div>
         </div>
+        <!-- 片段面板 -->
+        <SnippetPanel
+          ref="snippetPanelRef"
+          :visible="showSnippetPanel"
+          @close="showSnippetPanel = false"
+          @select="insertSnippet"
+        />
       </div>
     </div>
 
