@@ -1,3 +1,3 @@
-feat: 定时同步 - sync_plan CRUD + threading调度 + sidebar集成
+feat: 导入导出模板 - localStorage存储 + ExportDialog/ImportDialog集成
 
 Co-Authored-By: AtomCode (deepseek-v4-flash) <noreply@atomgit.com>

@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref, watch, computed } from 'vue'
-import { useMessage } from 'naive-ui'
+import { ref, watch, computed, h } from 'vue'
+import { useMessage, useDialog } from 'naive-ui'
 import { api } from '../../api'
+import { useTemplate } from '../../composables/useTemplate'
 
 const props = defineProps<{
   visible: boolean
@@ -15,8 +16,55 @@ const emit = defineEmits<{
 }>()
 
 const message = useMessage()
+const dialog = useDialog()
 const loading = ref(false)
 const activeTab = ref('structure')
+
+// ── 模板管理 ──
+const { templates, saveTemplate, deleteTemplate } = useTemplate('export')
+const showSaveTemplateDialog = ref(false)
+const templateName = ref('')
+const showTemplateSelector = ref(false)
+
+function getCurrentConfig() {
+  const db = selectedDb.value || props.dbName || null
+  return {
+    conn_id: activeConnId.value,
+    database: db,
+    tab: activeTab.value,
+    structureFormat: structureFormat.value,
+    erFormat: erFormat.value,
+    dataFormat: dataFormat.value,
+    batchFormat: batchFormat.value,
+    selectedTables: selectedTables.value,
+    selectedDataTable: selectedDataTable.value,
+    selectedBatchTables: selectedBatchTables.value,
+    includeRelations: includeRelations.value,
+    includeData: includeData.value,
+    includeDropTable: includeDropTable.value,
+    includeIfNotExists: includeIfNotExists.value,
+  }
+}
+
+function applyTemplate(tmpl: any) {
+  if (!tmpl) return
+  const d = tmpl.data || tmpl
+  if (d.database) selectedDb.value = d.database
+  if (d.tab) activeTab.value = d.tab
+  if (d.structureFormat) structureFormat.value = d.structureFormat
+  if (d.erFormat) erFormat.value = d.erFormat
+  if (d.dataFormat) dataFormat.value = d.dataFormat
+  if (d.batchFormat) batchFormat.value = d.batchFormat
+  if (d.selectedTables) selectedTables.value = d.selectedTables
+  if (d.selectedDataTable) selectedDataTable.value = d.selectedDataTable
+  if (d.selectedBatchTables) selectedBatchTables.value = d.selectedBatchTables
+  if (d.includeRelations !== undefined) includeRelations.value = d.includeRelations
+  if (d.includeData !== undefined) includeData.value = d.includeData
+  if (d.includeDropTable !== undefined) includeDropTable.value = d.includeDropTable
+  if (d.includeIfNotExists !== undefined) includeIfNotExists.value = d.includeIfNotExists
+  showTemplateSelector.value = false
+  message.success(`已加载模板: ${tmpl.name || ''}`)
+}
 
 // ── 连接选择 ──
 const connections = ref<any[]>([])
@@ -467,9 +515,46 @@ function close() {
     </n-tabs>
 
     <template #footer>
-      <n-space justify="end">
-        <n-button @click="close">取消</n-button>
-        <n-button type="primary" @click="doExport" :loading="loading">导出</n-button>
+      <n-space justify="space-between">
+        <n-space>
+          <n-button size="small" quaternary @click="showTemplateSelector = !showTemplateSelector">
+            📋 模板
+          </n-button>
+          <n-popover v-if="showTemplateSelector" trigger="manual" :show="showTemplateSelector" placement="top-start">
+            <template #trigger>
+              <span></span>
+            </template>
+            <n-space vertical size="small" style="max-width: 280px">
+              <n-text depth="3" style="font-size: 12px">保存当前配置为模板</n-text>
+              <n-input v-model:value="templateName" placeholder="模板名称" size="small" />
+              <n-button size="tiny" type="primary" @click="saveTemplate(templateName, getCurrentConfig()); templateName = ''; message.success('模板已保存')">
+                保存模板
+              </n-button>
+              <n-divider style="margin: 4px 0" />
+              <n-text depth="3" style="font-size: 12px">加载已有模板</n-text>
+              <n-data-table
+                v-if="templates.length > 0"
+                :columns="[
+                  { title: '名称', key: 'name', ellipsis: true },
+                  { title: '操作', key: 'action', width: 60,
+                    render: (r: any) => h('span', [
+                      h('n-button', { size: 'tiny', quaternary: true, type: 'info', onClick: () => applyTemplate(r) }, '载入'),
+                      h('n-button', { size: 'tiny', quaternary: true, type: 'error', onClick: () => { deleteTemplate(r.id); message.success('已删除') } }, '✕'),
+                    ]),
+                  },
+                ]"
+                :data="templates"
+                size="small"
+                :max-height="200"
+              />
+              <n-empty v-else description="暂无模板" style="font-size: 12px" />
+            </n-space>
+          </n-popover>
+        </n-space>
+        <n-space>
+          <n-button @click="close">取消</n-button>
+          <n-button type="primary" @click="doExport" :loading="loading">导出</n-button>
+        </n-space>
       </n-space>
     </template>
   </n-modal>

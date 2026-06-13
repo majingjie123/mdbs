@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref, watch, h } from 'vue'
-import { useMessage } from 'naive-ui'
+import { useMessage, useDialog } from 'naive-ui'
 import { api } from '../../api'
+import { useTemplate } from '../../composables/useTemplate'
 
 const props = defineProps<{
   visible: boolean
@@ -18,6 +19,35 @@ const loading = ref(false)
 const parsedData = ref<any>(null)
 
 // ── 导入模式：single / batch ──
+// ── 模板管理 ──
+const { templates, saveTemplate, deleteTemplate } = useTemplate('import')
+const showTemplateSelector = ref(false)
+const templateName = ref('')
+
+function getCurrentConfig() {
+  return {
+    tab: dialogMode.value,
+    importType: importType.value,
+    encoding: encoding.value,
+    targetTable: targetTable.value,
+    importMode: importMode.value,
+    ignoreErrors: ignoreErrors.value,
+  }
+}
+
+function applyTemplate(tmpl: any) {
+  if (!tmpl) return
+  const d = tmpl.data || tmpl
+  if (d.importType) importType.value = d.importType
+  if (d.encoding) encoding.value = d.encoding
+  if (d.targetTable) targetTable.value = d.targetTable
+  if (d.importMode) importMode.value = d.importMode
+  if (d.ignoreErrors !== undefined) ignoreErrors.value = d.ignoreErrors
+  if (d.tab) dialogMode.value = d.tab
+  showTemplateSelector.value = false
+  message.success('已加载模板: ' + (tmpl.name || ''))
+}
+
 const dialogMode = ref<'single' | 'batch'>('single')
 
 // ── 导入类型 ──
@@ -516,14 +546,51 @@ watch(importType, () => {
   </n-alert>
 
   <template #footer>
-    <n-space justify="end">
-      <n-button @click="close">取消</n-button>
-      <n-button v-if="dialogMode === 'single'" type="primary" @click="doImport" :loading="loading">
-        {{ importType === 'csv' && !parsedData ? '解析并导入' : '开始导入' }}
-      </n-button>
-      <n-button v-else type="primary" @click="doBatchImport" :loading="loading">
-        批量导入 ({{ batchFiles.filter((f: any) => f.status === 'parsed').length }})
-      </n-button>
+    <n-space justify="space-between">
+      <n-space>
+        <n-button size="small" quaternary @click="showTemplateSelector = !showTemplateSelector">
+          📋 模板
+        </n-button>
+        <n-popover v-if="showTemplateSelector" trigger="manual" :show="showTemplateSelector" placement="top-start">
+          <template #trigger>
+            <span></span>
+          </template>
+          <n-space vertical size="small" style="max-width: 280px">
+            <n-text depth="3" style="font-size: 12px">保存当前配置为模板</n-text>
+            <n-input v-model:value="templateName" placeholder="模板名称" size="small" />
+            <n-button size="tiny" type="primary" @click="saveTemplate(templateName, getCurrentConfig()); templateName = ''; message.success('模板已保存')">
+              保存模板
+            </n-button>
+            <n-divider style="margin: 4px 0" />
+            <n-text depth="3" style="font-size: 12px">加载已有模板</n-text>
+            <n-data-table
+              v-if="templates.length > 0"
+              :columns="[
+                { title: '名称', key: 'name', ellipsis: true },
+                { title: '操作', key: 'action', width: 60,
+                  render: (r: any) => h('span', [
+                    h('n-button', { size: 'tiny', quaternary: true, type: 'info', onClick: () => applyTemplate(r) }, '载入'),
+                    h('n-button', { size: 'tiny', quaternary: true, type: 'error', onClick: () => { deleteTemplate(r.id); message.success('已删除') } }, '✕'),
+                  ]),
+                },
+              ]"
+              :data="templates"
+              size="small"
+              :max-height="200"
+            />
+            <n-empty v-else description="暂无模板" style="font-size: 12px" />
+          </n-space>
+        </n-popover>
+      </n-space>
+      <n-space>
+        <n-button @click="close">取消</n-button>
+        <n-button v-if="dialogMode === 'single'" type="primary" @click="doImport" :loading="loading">
+          {{ importType === 'csv' && !parsedData ? '解析并导入' : '开始导入' }}
+        </n-button>
+        <n-button v-else type="primary" @click="doBatchImport" :loading="loading">
+          批量导入 ({{ batchFiles.filter((f: any) => f.status === 'parsed').length }})
+        </n-button>
+      </n-space>
     </n-space>
   </template>
 </n-modal>
