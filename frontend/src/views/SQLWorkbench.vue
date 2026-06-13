@@ -207,6 +207,30 @@ const _cellVersion = ref(0)  // 编辑/修改变化时 +1，所有 cell render �
 const modifiedCount = computed(() => _modifiedMap.size)
 const saving = ref(false)
 
+// 行选择状态
+const checkedRowKeys = ref<(string | number)[]>([])
+const allRowKeys = computed(() => {
+  if (!result.value?.columns) return []
+  const cols = result.value.columns
+  if (!cols.length) return []
+  return mappedRows.value.map((_, idx) => (page.value - 1) * pageSize.value + idx)
+})
+
+// 排序状态
+const sortState = ref<{ column: string; order: 'asc' | 'desc' } | null>(null)
+
+// 筛选状态
+const filterText = ref('')
+const filteredRows = computed(() => {
+  if (!filterText.value.trim()) return mappedRows.value
+  const keyword = filterText.value.toLowerCase()
+  return mappedRows.value.filter(row => {
+    return Object.values(row).some(val =>
+      val !== null && String(val).toLowerCase().includes(keyword)
+    )
+  })
+})
+
 // 列定义 computed，仅 columns 变化时重建（不依赖 page/pageSize）
 const tableColumns = computed(() => {
   if (!result.value?.columns) return []
@@ -216,6 +240,14 @@ const tableColumns = computed(() => {
     key: col,
     width: 160,
     ellipsis: true,
+    sorter: (rowA: any, rowB: any) => {
+      const a = rowA[col]
+      const b = rowB[col]
+      if (a === null || a === undefined) return 1
+      if (b === null || b === undefined) return -1
+      if (typeof a === 'number' && typeof b === 'number') return a - b
+      return String(a).localeCompare(String(b))
+    },
     render: (row: any, ri: number) => {
       // 用 _cellVersion 创建唯一 reactivity dep，读取非响应式 store 避免海量 deps
       _cellVersion.value; // 只读一次，建立单个 dep
@@ -342,6 +374,96 @@ function clearSql() { sqlText.value = ''; error.value = '' }
 function formatSql() {
   if (sqlEditorRef.value) {
     sqlEditorRef.value.format()
+  }
+}
+
+// ── 批量操作 ──
+const batchOptions = [
+  { label: '批量设置值', key: 'set' },
+  { label: '批量删除行', key: 'delete' },
+  { label: '取消选择', key: 'clear' },
+]
+
+async function handleBatchAction(key: string) {
+  if (key === 'clear') {
+    checkedRowKeys.value = []
+    return
+  }
+
+  if (!props.connId) {
+    message.warning('连接不存在')
+    return
+  }
+
+  const tableName = guessTableName(sqlText.value)
+  if (!tableName) {
+    message.warning('无法确定表名，请使用 SELECT 语句')
+    return
+  }
+
+  if (key === 'delete') {
+    const rows = checkedRowKeys.value.map((k: string | number) => Number(k))
+    const pkCol = result.value?.columns[0] || 'id'
+    const ids = rows.map((r: number) => {
+      const rowIdx = r - (page.value - 1) * pageSize.value
+      const row = allRows.value[rowIdx as number]
+      return row ? (row as any)[pkCol as string] : undefined
+    }).filter(Boolean)
+
+    if (ids.length === 0) {
+      message.warning('无法获取主键值')
+      return
+    }
+
+    // 逐行删除
+    const deleteSqls = ids.map(id => ({ sql: `DELETE FROM ${tableName} WHERE ${pkCol} = ?`, params: [id] }))
+    try {
+      const res: any = await api.executeBatch(props.connId, deleteSqls, props.dbName || undefined)
+      if (res.success) {
+        message.success(`已删除 ${ids.length} 行`)
+        checkedRowKeys.value = []
+        await runQuery()
+      } else {
+        message.error(res.message || '删除失败')
+      }
+    } catch (e: any) {
+      message.error('删除失败: ' + e.message)
+    }
+  }
+
+  if (key === 'set') {
+    const col = result.value?.columns[0]
+    if (!col) return
+    const newVal = prompt(`请输入要设置的统一值（将设置到选中的 ${checkedRowKeys.value.length} 行的 ${col} 列）:`)
+    if (newVal === null) return
+
+    const rows = checkedRowKeys.value.map(k => Number(k))
+    const pkCol = result.value?.columns[0] || 'id'
+    const ids = rows.map((r: number) => {
+      const rowIdx = r - (page.value - 1) * pageSize.value
+      const row = allRows.value[rowIdx]
+      return row ? (row as any)[pkCol as string] : undefined
+    }).filter(Boolean)
+
+    if (ids.length === 0) {
+      message.warning('无法获取主键值')
+      return
+    }
+
+    // 逐行更新
+    const updateSqls = ids.map((id: any) => ({ sql: `UPDATE ${tableName} SET ${col} = ? WHERE ${pkCol} = ?`, params: [newVal, id] }))
+    try {
+      const res: any = await api.executeBatch(props.connId, updateSqls, props.dbName || undefined)
+      if (res.success) {
+        message.success(`已更新 ${ids.length} 行`)
+        checkedRowKeys.value = []
+        await runQuery()
+      } else {
+        message.error(res.message || '更新失败')
+      }
+    } catch (e: any) {
+      message.error('更新失败: ' + e.message)
+    }
   }
 }
 
@@ -733,6 +855,29 @@ async function doSaveQuery(overwrite?: boolean) {
           </n-tag>
         </span>
         <n-space size="small">
+          <!-- 筛选输入 -->
+          <n-input
+            v-model:value="filterText"
+            placeholder="筛选数据..."
+            clearable
+            size="tiny"
+            style="width: 150px"
+          />
+          <n-tag v-if="filterText && filteredRows.length !== mappedRows.length" size="tiny" type="info">
+            {{ filteredRows.length }} / {{ mappedRows.length }}
+          </n-tag>
+          <!-- 已选行数 -->
+          <n-tag v-if="checkedRowKeys.length > 0" size="tiny" type="success">
+            已选 {{ checkedRowKeys.length }} 行
+          </n-tag>
+          <!-- 批量操作 -->
+          <n-dropdown
+            v-if="checkedRowKeys.length > 0"
+            :options="batchOptions"
+            @select="handleBatchAction"
+          >
+            <n-button size="tiny">批量操作 ▾</n-button>
+          </n-dropdown>
           <n-tag v-if="queryTime > 0" size="tiny" type="info">{{ queryTime }}ms</n-tag>
           <n-button
             v-if="modifiedCount > 0"
@@ -776,11 +921,13 @@ async function doSaveQuery(overwrite?: boolean) {
             :scroll-x="scrollX"
             single-line
             :columns="tableColumns"
-            :data="mappedRows"
+            :data="filteredRows"
             :max-height="tableMaxHeight"
             virtual-scroll
             :row-height="28"
             :row-key="(row: Record<string, any>, idx: number) => (page - 1) * pageSize + idx"
+            :checked-row-keys="checkedRowKeys"
+            @update:checked-row-keys="(keys: (string | number)[]) => checkedRowKeys = keys"
           />
         </div>
         <button
