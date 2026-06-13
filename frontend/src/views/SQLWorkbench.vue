@@ -563,11 +563,27 @@ const filteredRows = computed(() => {
 })
 
 // 列定义 computed，仅 columns 变化时重建（不依赖 page/pageSize）
+const columnOrder = ref<string[]>([]) // 用户自定义列顺序，空 = 默认
+const colCtxMenu = ref({ visible: false, x: 0, y: 0, col: '' })
+
 const tableColumns = computed(() => {
   if (!activeResult.value?.data?.columns) return []
-  const cols = activeResult.value.data.columns
+  let cols = activeResult.value.data.columns
+  // 应用用户自定义列顺序
+  if (columnOrder.value.length > 0) {
+    const ordered = columnOrder.value.filter(c => cols.includes(c))
+    const remaining = cols.filter(c => !columnOrder.value.includes(c))
+    cols = [...ordered, ...remaining]
+  }
   const defs = cols.map((col, ci) => markRaw({
-    title: col,
+    title: () => h('span', {
+      style: 'cursor: pointer; user-select: none;',
+      onContextmenu: (e: MouseEvent) => {
+        e.preventDefault()
+        e.stopPropagation()
+        colCtxMenu.value = { visible: true, x: e.clientX, y: e.clientY, col }
+      },
+    }, col),
     key: col,
     width: 160,
     ellipsis: true,
@@ -908,6 +924,50 @@ function copyExplainResult() {
     message.success('已复制到剪贴板')
   }
 }
+
+// ── 列排序 ──
+function moveColumnLeft(colName: string) {
+  const cols = activeResult.value?.data?.columns
+  if (!cols) return
+  const idx = columnOrder.value.indexOf(colName)
+  if (columnOrder.value.length === 0) {
+    columnOrder.value = [...cols]
+  }
+  const curIdx = columnOrder.value.indexOf(colName)
+  if (curIdx > 0) {
+    const arr = [...columnOrder.value]
+    ;[arr[curIdx - 1], arr[curIdx]] = [arr[curIdx], arr[curIdx - 1]]
+    columnOrder.value = arr
+  }
+  colCtxMenu.value.visible = false
+}
+
+function moveColumnRight(colName: string) {
+  const cols = activeResult.value?.data?.columns
+  if (!cols) return
+  if (columnOrder.value.length === 0) {
+    columnOrder.value = [...cols]
+  }
+  const curIdx = columnOrder.value.indexOf(colName)
+  if (curIdx >= 0 && curIdx < columnOrder.value.length - 1) {
+    const arr = [...columnOrder.value]
+    ;[arr[curIdx], arr[curIdx + 1]] = [arr[curIdx + 1], arr[curIdx]]
+    columnOrder.value = arr
+  }
+  colCtxMenu.value.visible = false
+}
+
+function resetColumnOrder() {
+  columnOrder.value = []
+  colCtxMenu.value.visible = false
+}
+
+// 点击文档关闭列右键菜单
+function onDocClickColMenu() {
+  if (colCtxMenu.value.visible) colCtxMenu.value.visible = false
+}
+onMounted(() => document.addEventListener('click', onDocClickColMenu))
+onUnmounted(() => document.removeEventListener('click', onDocClickColMenu))
 
 // ── 批量操作 ──
 const batchOptions = [
@@ -1560,6 +1620,21 @@ async function doSaveQuery(overwrite?: boolean) {
           title="向右滚动"
         >›</button>
       </div>
+
+      <!-- 列右键菜单 -->
+      <teleport to="body">
+        <div
+          v-if="colCtxMenu.visible"
+          class="column-context-menu"
+          :style="{ left: colCtxMenu.x + 'px', top: colCtxMenu.y + 'px' }"
+          @click.stop
+        >
+          <div class="ctx-item" @click="moveColumnLeft(colCtxMenu.col)">← 向左移动</div>
+          <div class="ctx-item" @click="moveColumnRight(colCtxMenu.col)">→ 向右移动</div>
+          <div class="ctx-sep"></div>
+          <div class="ctx-item" @click="resetColumnOrder">↺ 重置列顺序</div>
+        </div>
+      </teleport>
 
       <!-- 底部分页栏 -->
       <div class="result-footer" v-if="totalRows > 0">
