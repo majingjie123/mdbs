@@ -7,6 +7,7 @@ import { oneDark } from '@codemirror/theme-one-dark'
 import { autocompletion, CompletionContext } from '@codemirror/autocomplete'
 import { defaultKeymap, indentWithTab } from '@codemirror/commands'
 import { searchKeymap } from '@codemirror/search'
+import { bracketMatching } from '@codemirror/language'
 import { format } from 'sql-formatter'
 
 const props = withDefaults(defineProps<{
@@ -102,6 +103,29 @@ function parseTablePrefix(text: string): { table: string; prefix: string } | nul
 onMounted(() => loadSchema())
 watch(() => props.connId, () => loadSchema())
 
+// 检测 SQL 上下文（JOIN / ON / FROM 等）
+function detectSqlContext(text: string): 'join' | 'on' | 'from' | 'table_ref' | 'none' {
+  const upper = text.toUpperCase()
+  // 检测最后一个单词是否为 JOIN/FROM 等关键字
+  const words = upper.split(/\s+/).filter(Boolean)
+  const lastWord = words[words.length - 1] || ''
+  const prevWord = words[words.length - 2] || ''
+
+  // 检查是否是 "LEFT JOIN table|" 或 "JOIN table|" 场景
+  if (['JOIN', 'LEFT', 'RIGHT', 'INNER', 'CROSS', 'FULL', 'NATURAL'].includes(lastWord)) {
+    return 'join'
+  }
+  if (lastWord === 'FROM') return 'from'
+  if (lastWord === 'ON') return 'on'
+  if (prevWord === 'ON' || prevWord === 'ON' && !text.includes('=')) return 'on'
+
+  // 检查是否在 JOIN ... ON 之间
+  const joinMatch = upper.match(/JOIN\s+(\w+)/)
+  if (joinMatch && !text.includes('ON')) return 'join'
+
+  return 'none'
+}
+
 // 自动补全函数
 function sqlCompletions(context: CompletionContext) {
   const cache = schemaCache.value
@@ -110,6 +134,9 @@ function sqlCompletions(context: CompletionContext) {
   const pos = context.pos
   const line = context.state.doc.lineAt(pos)
   const lineText = line.text.slice(0, pos - line.from)
+
+  // 检测 SQL 上下文
+  const sqlContext = detectSqlContext(lineText)
 
   // 检查是否是表名.列名 的补全
   const tablePrefix = parseTablePrefix(lineText)
@@ -158,6 +185,30 @@ function sqlCompletions(context: CompletionContext) {
     }
   }
 
+  // JOIN 上下文智能排序：在 JOIN/FROM 后优先显示表名，ON 后优先显示列名
+  if (sqlContext === 'join' || sqlContext === 'from') {
+    options.sort((a, b) => {
+      const aIsTable = a.type === 'keyword' || a.detail === 'table'
+      const bIsTable = b.type === 'keyword' || b.detail === 'table'
+      if (aIsTable && !bIsTable) return -1
+      if (!aIsTable && bIsTable) return 1
+      return 0
+    })
+  } else if (sqlContext === 'on') {
+    options.sort((a, b) => {
+      const aIsCol = a.type === 'variable'
+      const bIsCol = b.type === 'variable'
+      const aIsKw = a.type === 'keyword'
+      const bIsKw = b.type === 'keyword'
+      if (aIsCol && !bIsCol) return -1
+      if (!aIsCol && bIsCol) return 1
+      // 关键字优先级最低
+      if (aIsKw && !bIsKw) return 1
+      if (!aIsKw && bIsKw) return -1
+      return 0
+    })
+  }
+
   // 添加 SQL 关键字
   const keywords = [
     'SELECT', 'FROM', 'WHERE', 'AND', 'OR', 'ORDER BY', 'GROUP BY', 'HAVING', 'LIMIT', 'OFFSET',
@@ -189,6 +240,7 @@ function sqlCompletions(context: CompletionContext) {
 const extensions = [
   sql({ dialect: MySQL }),
   oneDark,
+  bracketMatching(),
   autocompletion({ override: [sqlCompletions] }),
   keymap.of([
     { key: 'Mod-Enter', run: () => { emit('execute'); return true } },

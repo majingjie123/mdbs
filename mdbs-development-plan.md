@@ -38,8 +38,8 @@
 | 多个查询结果分屏 | P1 | ✅ 完成 | results 数组 + 选项卡切换 |
 | 结果中新增/删除行 | P0 | ✅ 完成 | 行操作按钮 + 确认弹窗 |
 | 自动保存草稿 | P0 | ✅ 完成 | localStorage 1.5s 防抖自动保存 |
-| 括号匹配高亮 | P2 | ❌ 待开发 | CodeMirror 插件 |
-| JOIN 智能补全 | P2 | ❌ 待开发 | 解析 SQL 上下文 |
+| 括号匹配高亮 | P2 | ✅ 完成 | CodeMirror bracketMatching 插件 |
+| JOIN 智能补全 | P2 | ✅ 完成 | 上下文检测 JOIN/ON/FROM 智能排序补全 |
 
 ### 1.2 开发细节
 
