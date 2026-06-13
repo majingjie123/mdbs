@@ -24,6 +24,7 @@ const message = useMessage()
 
 const sqlText = ref(props.initialSql || `SELECT 1`)
 const result = ref<ExecResult | null>(null)
+const sqlEditorRef = ref<InstanceType<typeof SqlEditor> | null>(null)
 const running = ref(false)
 const error = ref('')
 const abortController = ref<AbortController | null>(null)
@@ -339,31 +340,9 @@ function stopQuery() {
 function clearSql() { sqlText.value = ''; error.value = '' }
 
 function formatSql() {
-  // 简单格式化：关键字大写 + 缩进
-  let s = sqlText.value.trim()
-  if (!s) return
-  const kw = /\b(SELECT|FROM|WHERE|AND|OR|ORDER BY|GROUP BY|HAVING|LIMIT|OFFSET|INSERT INTO|VALUES|UPDATE|SET|DELETE|CREATE|ALTER|DROP|JOIN|LEFT JOIN|RIGHT JOIN|INNER JOIN|OUTER JOIN|ON|UNION|ALL|INTO|LIKE|BETWEEN|EXISTS|NOT|IN|AS|DISTINCT|COUNT|SUM|AVG|MIN|MAX|INTO)\b/gi
-  s = s.replace(kw, m => m.toUpperCase())
-  // 在主要关键字前加换行（不在字符串内）
-  const breakKw = /\b(WHERE|ORDER BY|GROUP BY|HAVING|LIMIT|OFFSET|JOIN|LEFT JOIN|RIGHT JOIN|INNER JOIN|OUTER JOIN|ON|UNION|AND|OR)\b/gi
-  const parts: string[] = []
-  let last = 0
-  let match: RegExpExecArray | null
-  while ((match = breakKw.exec(s)) !== null) {
-    const pos = match.index
-    if (pos > last) parts.push(s.slice(last, pos))
-    // 检测是否在引号内（简单检测）
-    const before = s.slice(0, pos)
-    const quotes = (before.match(/'/g)||[]).length
-    if (quotes % 2 === 1) {
-      parts.push(match[0])
-    } else {
-      parts.push('\n  ' + match[0])
-    }
-    last = breakKw.lastIndex
+  if (sqlEditorRef.value) {
+    sqlEditorRef.value.format()
   }
-  if (last < s.length) parts.push(s.slice(last))
-  sqlText.value = parts.join('').trim()
 }
 
 function startEdit(rowIdx: number, colIdx: number) {
@@ -703,12 +682,16 @@ async function doSaveQuery(overwrite?: boolean) {
           <n-button v-show="running" size="tiny" type="error" @click="stopQuery">
             ⬛ 停止
           </n-button>
+          <n-button size="tiny" @click="formatSql" title="格式化 SQL (Ctrl+Shift+F)">
+            ♨ 格式化
+          </n-button>
         </n-space>
       </div>
 
       <div class="editor-body">
         <div class="editor-sql-area">
           <SqlEditor
+            ref="sqlEditorRef"
             v-model:modelValue="sqlText"
             :connId="props.connId"
             :dbName="props.dbName"
