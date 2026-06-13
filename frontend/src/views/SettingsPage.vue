@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, h } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMessage, useDialog } from 'naive-ui'
 import { useAppStore } from '../stores/app'
+import type { DataTableColumn, FormInst } from 'naive-ui'
+import { api } from '../api'
 
 const router = useRouter()
 const store = useAppStore()
@@ -10,6 +12,208 @@ const message = useMessage()
 const dialog = useDialog()
 
 const activeTab = ref('theme')
+
+// AI 配置相关
+const aiLoading = ref(false)
+const aiConfigs = ref<any[]>([])
+const showAiDialog = ref(false)
+const aiTesting = ref(false)
+const aiEditId = ref<number | null>(null)
+const aiFormRef = ref<FormInst | null>(null)
+const aiFormData = ref({
+  name: '',
+  api_key: '',
+  base_url: 'https://api.openai.com/v1',
+  model: 'gpt-3.5-turbo',
+  temperature: 0.7,
+  max_tokens: 2048,
+  system_prompt: '',
+  is_default: false,
+})
+const aiModelSuggestions = ref([
+  'gpt-3.5-turbo', 'gpt-4', 'gpt-4-turbo', 'gpt-4o', 'gpt-4o-mini',
+  'gpt-4.1', 'gpt-4.1-mini', 'gpt-4.1-nano',
+  'deepseek-chat', 'deepseek-reasoner',
+  'claude-3-opus-20240229', 'claude-3-sonnet-20240229',
+])
+const refreshingModels = ref(false)
+
+const aiColumns: DataTableColumn[] = [
+  { title: '名称', key: 'name', width: 120 },
+  { title: '模型', key: 'model', width: 160 },
+  { title: 'Base URL', key: 'base_url', ellipsis: { tooltip: true } },
+  { title: '默认', key: 'is_default', width: 60,
+    render: (row: any) => row.is_default ? h('n-tag', { type: 'success', size: 'small' }, '默认') : '',
+  },
+  { title: '操作', key: 'actions', width: 160,
+    render: (row: any) => h('n-space', { size: 'small' }, {
+      default: () => [
+        h('n-button', { size: 'tiny', onClick: () => editAiConfig(row) }, '编辑'),
+        h('n-button', { size: 'tiny', type: 'error', quaternary: true, onClick: () => deleteAiConfig(row) }, '删除'),
+      ],
+    }),
+  },
+]
+
+async function loadAiConfigs() {
+  aiLoading.value = true
+  try {
+    const res: any = await api.aiListConfigs()
+    if (res.success) aiConfigs.value = res.data || []
+  } catch (e: any) {
+    message.error('加载失败: ' + (e.message || ''))
+  } finally {
+    aiLoading.value = false
+  }
+}
+
+function editAiConfig(row: any) {
+  aiEditId.value = row.id
+  aiFormData.value = {
+    name: row.name || '',
+    api_key: '',
+    base_url: row.base_url || 'https://api.openai.com/v1',
+    model: row.model || 'gpt-3.5-turbo',
+    temperature: row.temperature ?? 0.7,
+    max_tokens: row.max_tokens ?? 2048,
+    system_prompt: row.system_prompt || '',
+    is_default: !!row.is_default,
+  }
+  showAiDialog.value = true
+}
+
+async function saveAiConfig() {
+  try {
+    await aiFormRef.value?.validate()
+  } catch {
+    return
+  }
+  try {
+    let res: any
+    const data: any = { ...aiFormData.value }
+    if (aiEditId.value && !data.api_key) {
+      delete data.api_key
+    }
+    if (aiEditId.value) {
+      res = await api.aiUpdateConfig(aiEditId.value, data)
+    } else {
+      res = await api.aiCreateConfig(data)
+    }
+    if (res.success) {
+      message.success(aiEditId.value ? '配置已更新' : '配置已创建')
+      showAiDialog.value = false
+      aiEditId.value = null
+      resetAiForm()
+      await loadAiConfigs()
+    } else {
+      message.error(res.message || '保存失败')
+    }
+  } catch (e: any) {
+    message.error('保存失败: ' + (e.message || ''))
+  }
+}
+
+function deleteAiConfig(row: any) {
+  dialog.warning({
+    title: '删除配置',
+    content: `确定删除配置 "${row.name}" 吗？`,
+    positiveText: '删除',
+    negativeText: '取消',
+    onPositiveClick: async () => {
+      try {
+        const res: any = await api.aiDeleteConfig(row.id)
+        if (res.success) {
+          message.success('已删除')
+          await loadAiConfigs()
+        } else {
+          message.error(res.message || '删除失败')
+        }
+      } catch (e: any) {
+        message.error('删除失败')
+      }
+    },
+  })
+}
+
+async function testAiConnection() {
+  if (!aiFormData.value.api_key) {
+    message.warning('请先输入 API Key')
+    return
+  }
+  aiTesting.value = true
+  let tempId = 0
+  try {
+    const createRes: any = await api.aiCreateConfig({
+      name: '__temp_test__',
+      api_key: aiFormData.value.api_key,
+      base_url: aiFormData.value.base_url,
+      model: aiFormData.value.model,
+      temperature: aiFormData.value.temperature,
+      max_tokens: aiFormData.value.max_tokens,
+    })
+    if (!createRes.success || !createRes.data) {
+      message.error('创建临时配置失败')
+      return
+    }
+    tempId = createRes.data.id
+    const res: any = await api.aiTestConfig(tempId)
+    if (res.success) {
+      message.success('连接成功!')
+    } else {
+      message.error(res.message || '连接失败')
+    }
+  } catch (e: any) {
+    message.error('测试失败: ' + (e.message || ''))
+  } finally {
+    if (tempId) {
+      try { await api.aiDeleteConfig(tempId) } catch {}
+    }
+    aiTesting.value = false
+  }
+}
+
+async function refreshAiModels() {
+  if (!aiFormData.value.base_url || !aiFormData.value.api_key) {
+    message.warning('请先填写 Base URL 和 API Key')
+    return
+  }
+  refreshingModels.value = true
+  try {
+    const res: any = await api.aiListModels(aiFormData.value.api_key, aiFormData.value.base_url)
+    if (res.success && Array.isArray(res.data)) {
+      aiModelSuggestions.value = res.data
+      if (res.data.length > 0 && !aiFormData.value.model) {
+        aiFormData.value.model = res.data[0]
+      }
+      message.success(`获取到 ${res.data.length} 个模型`)
+    } else {
+      message.error(res.message || '获取模型列表失败')
+    }
+  } catch (e: any) {
+    message.error('获取模型列表失败: ' + (e.message || ''))
+  } finally {
+    refreshingModels.value = false
+  }
+}
+
+function resetAiForm() {
+  aiFormData.value = {
+    name: '',
+    api_key: '',
+    base_url: 'https://api.openai.com/v1',
+    model: 'gpt-3.5-turbo',
+    temperature: 0.7,
+    max_tokens: 2048,
+    system_prompt: '',
+    is_default: false,
+  }
+  aiEditId.value = null
+}
+
+function openAddAiDialog() {
+  resetAiForm()
+  showAiDialog.value = true
+}
 
 // 主题设置
 const themeOptions = [
@@ -79,11 +283,10 @@ function goBack() {
   }
 }
 
-function goAISettings() {
-  store.openTab('ai-settings', 'AI 设置', {}, true)
-}
-
-onMounted(loadSettings)
+onMounted(() => {
+  loadSettings()
+  loadAiConfigs()
+})
 </script>
 
 <template>
@@ -126,9 +329,67 @@ onMounted(loadSettings)
       <!-- AI 设置 -->
       <n-tab-pane name="ai" tab="AI 设置">
         <div style="padding: 16px 0">
-          <p style="margin-bottom: 12px; color: var(--color-text-secondary);">配置 AI 助手使用的 API Key、模型、接口地址等</p>
-          <n-button type="primary" @click="goAISettings">打开 AI 配置页面</n-button>
+          <n-space justify="space-between" style="margin-bottom: 16px">
+            <p style="color: var(--color-text-secondary); margin: 0;">配置 AI 助手使用的 API Key、模型、接口地址等</p>
+            <n-button type="primary" @click="openAddAiDialog">新增配置</n-button>
+          </n-space>
+          <n-data-table
+            :columns="aiColumns"
+            :data="aiConfigs"
+            :loading="aiLoading"
+            striped
+          />
         </div>
+
+        <!-- AI 配置对话框 -->
+        <n-modal v-model:show="showAiDialog" :title="aiEditId ? '编辑 AI 配置' : '新增 AI 配置'" preset="card" style="width: 500px" :mask-closable="false">
+          <n-form ref="aiFormRef" :model="aiFormData" label-placement="left" label-width="100">
+            <n-form-item label="名称" path="name" :rule="{ required: true, message: '请输入配置名称', trigger: ['blur', 'input'] }">
+              <n-input v-model:value="aiFormData.name" placeholder="配置名称" />
+            </n-form-item>
+            <n-form-item label="API Key">
+              <n-input v-model:value="aiFormData.api_key" type="password" show-password-on="click" placeholder="sk-..." />
+            </n-form-item>
+            <n-form-item label="Base URL">
+              <n-input v-model:value="aiFormData.base_url" placeholder="https://api.openai.com/v1" />
+            </n-form-item>
+            <n-form-item label="模型">
+              <div style="display: flex; align-items: center; gap: 6px; width: 100%">
+                <n-auto-complete v-model:value="aiFormData.model" :options="aiModelSuggestions" placeholder="gpt-3.5-turbo" style="flex: 1" />
+                <n-button size="tiny" quaternary @click="refreshAiModels" :loading="refreshingModels" title="刷新模型列表">
+                  <template #icon>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" :class="{ spinning: refreshingModels }">
+                      <polyline points="23 4 23 10 17 10"/>
+                      <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+                    </svg>
+                  </template>
+                </n-button>
+              </div>
+            </n-form-item>
+            <n-form-item label="Temperature">
+              <n-slider v-model:value="aiFormData.temperature" :min="0" :max="2" :step="0.1" style="width: 200px" />
+              <span style="margin-left: 12px">{{ aiFormData.temperature.toFixed(1) }}</span>
+            </n-form-item>
+            <n-form-item label="Max Tokens">
+              <n-input-number v-model:value="aiFormData.max_tokens" :min="1" :max="128000" :step="100" style="width: 160px" />
+            </n-form-item>
+            <n-form-item label="系统提示词">
+              <n-input v-model:value="aiFormData.system_prompt" type="textarea" :rows="3" placeholder="可选的系统提示词" />
+            </n-form-item>
+            <n-form-item label="设为默认">
+              <n-switch v-model:value="aiFormData.is_default" />
+            </n-form-item>
+          </n-form>
+          <template #footer>
+            <n-space justify="space-between">
+              <n-button @click="testAiConnection" :loading="aiTesting" :disabled="!aiFormData.api_key">测试连接</n-button>
+              <n-space>
+                <n-button @click="showAiDialog = false">取消</n-button>
+                <n-button type="primary" @click="saveAiConfig">保存</n-button>
+              </n-space>
+            </n-space>
+          </template>
+        </n-modal>
       </n-tab-pane>
 
       <!-- 关于 -->
@@ -245,5 +506,14 @@ onMounted(loadSettings)
 .about-section p {
   color: #aaa;
   margin: 4px 0;
+}
+
+.spinning {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 </style>
