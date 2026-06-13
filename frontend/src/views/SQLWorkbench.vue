@@ -747,10 +747,15 @@ function formatSql() {
 // ── EXPLAIN 执行计划 ──
 const explainResult = ref('')
 const showExplain = ref(false)
-const explainTab = ref<'tree' | 'table' | 'raw'>('tree')
+const explainTab = ref<'tree' | 'table' | 'raw' | 'index-advice'>('tree')
 const explainTreeData = ref<any[]>([])
 const explainTableData = ref<any[]>([])
 const explainTableCols = ref<string[]>([])
+
+// ── 索引建议 ──
+const indexSuggestions = ref<any[]>([])
+const indexSummary = ref<any>(null)
+const indexAnalyzing = ref(false)
 
 function parseExplainJson(json: any) {
   // MySQL EXPLAIN FORMAT=JSON → 树形结构
@@ -922,6 +927,45 @@ function copyExplainResult() {
   if (explainResult.value) {
     navigator.clipboard.writeText(explainResult.value)
     message.success('已复制到剪贴板')
+  }
+}
+
+// ── 索引建议分析 ──
+async function analyzeIndex() {
+  if (!sqlText.value.trim()) return
+  indexAnalyzing.value = true
+  indexSuggestions.value = []
+  indexSummary.value = null
+  try {
+    const res: any = await api.analyzeIndex(props.connId, {
+      sql: sqlText.value,
+      database: props.dbName || undefined,
+    })
+    if (res.success) {
+      indexSuggestions.value = res.data?.suggestions || []
+      indexSummary.value = res.data?.summary || null
+    } else {
+      message.error(res.message || '分析失败')
+    }
+  } catch (e: any) {
+    message.error(e.message || '分析失败')
+  } finally {
+    indexAnalyzing.value = false
+  }
+}
+
+function copySuggestionSql(sql: string) {
+  if (sql) {
+    navigator.clipboard.writeText(sql)
+    message.success('SQL 已复制到剪贴板')
+  }
+}
+
+function getPriorityTag(priority: string) {
+  switch (priority) {
+    case 'high': return { type: 'error' as const, text: '🔴 高优先级' }
+    case 'medium': return { type: 'warning' as const, text: '🟡 中优先级' }
+    default: return { type: 'info' as const, text: '🟢 低优先级' }
   }
 }
 
@@ -1677,7 +1721,7 @@ async function doSaveQuery(overwrite?: boolean) {
 
     <!-- EXPLAIN 结果面板 -->
     <n-modal v-model:show="showExplain" title="EXPLAIN 执行计划" preset="card" style="width: 900px; max-height: 85vh;" :mask-closable="true">
-      <n-tabs v-model:value="explainTab" type="line" size="small">
+      <n-tabs v-model:value="explainTab" type="line" size="small" @update:value="(v: string) => { if (v === 'index-advice' && !indexSuggestions.length && !indexAnalyzing) analyzeIndex() }">
         <n-tab-pane name="tree" tab="🌳 执行树">
           <n-spin :show="running">
             <div v-if="explainTreeData.length > 0" style="max-height: 500px; overflow: auto; padding: 8px 0;">
@@ -1712,6 +1756,51 @@ async function doSaveQuery(overwrite?: boolean) {
               {{ explainResult || (running ? '正在执行...' : '暂无数据') }}
             </n-pre>
           </n-spin>
+        </n-tab-pane>
+        <n-tab-pane name="index-advice" tab="💡 索引建议">
+          <n-space vertical>
+            <div v-if="!indexSuggestions.length && !indexAnalyzing" style="padding: 20px 0; text-align: center;">
+              <n-button type="primary" ghost @click="analyzeIndex" :loading="indexAnalyzing">
+                🔍 分析当前 SQL 的索引建议
+              </n-button>
+            </div>
+            <n-spin :show="indexAnalyzing">
+              <template v-if="indexSuggestions.length > 0">
+                <n-card title="📊 查询摘要" size="small" :bordered="true" style="margin-bottom: 12px;">
+                  <n-descriptions size="small" :column="4">
+                    <n-descriptions-item label="涉及表">{{ indexSummary?.table_count || 0 }} 张</n-descriptions-item>
+                    <n-descriptions-item label="扫描行数(约)">{{ indexSummary?.total_rows_examined || 0 }}</n-descriptions-item>
+                    <n-descriptions-item label="访问类型">{{ (indexSummary?.access_types || []).join(', ') }}</n-descriptions-item>
+                    <n-descriptions-item label="建议数">{{ indexSuggestions.length }}</n-descriptions-item>
+                  </n-descriptions>
+                </n-card>
+                <n-list bordered>
+                  <n-list-item v-for="(s, i) in indexSuggestions" :key="i" style="border-bottom: 1px solid var(--color-border); padding: 12px;">
+                    <n-thing>
+                      <template #header>
+                        <n-space align="center" size="small">
+                          <n-tag :type="getPriorityTag(s.priority).type" size="small" round>
+                            {{ getPriorityTag(s.priority).text }}
+                          </n-tag>
+                          <span style="font-weight: 600;">建议 #{{ i + 1 }}: 表 `{{ s.table }}`</span>
+                        </n-space>
+                      </template>
+                      <template #description>
+                        <div style="margin-top: 4px; font-size: 13px; color: #e6e6e6;">
+                          <p>{{ s.reason }}</p>
+                          <n-code :code="s.suggested_sql" language="sql" style="display: block; margin-top: 8px;" />
+                          <n-button size="tiny" @click="copySuggestionSql(s.suggested_sql)" style="margin-top: 8px;">
+                            📋 复制 SQL
+                          </n-button>
+                        </div>
+                      </template>
+                    </n-thing>
+                  </n-list-item>
+                </n-list>
+              </template>
+              <n-empty v-else-if="!indexAnalyzing" description="当前 SQL 未检测到需要优化的索引" />
+            </n-spin>
+          </n-space>
         </n-tab-pane>
       </n-tabs>
       <template #footer>

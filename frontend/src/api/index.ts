@@ -177,6 +177,10 @@ export const api = {
   revokePrivilege: (connId: number, data: { user: string; host?: string; database?: string; table?: string; privilege: string }) =>
     http.post(`/users/${connId}/revoke`, data) as Promise<ApiResponse>,
 
+  // ── 索引建议 ──
+  analyzeIndex: (connId: number, data: { sql: string; database?: string }) =>
+    http.post(`/index-advisor/analyze/${connId}`, data) as Promise<ApiResponse<any>>,
+
   // 表结构修改
   createTable: (connId: number, params: any) =>
     http.post(`/tables/${connId}/create`, params) as Promise<ApiResponse>,

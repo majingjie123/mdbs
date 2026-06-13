@@ -291,17 +291,32 @@ def drop_trigger(...):
 |--------|--------|------|----------|
 | EXPLAIN 执行计划 | P1 | ✅ 完成 | 弹窗展示原始输出 |
 | 慢查询日志 | P3 | ❌ 待开发 | 需要后端收集 |
-| 索引建议 | P3 | ❌ 待开发 | 解析 EXPLAIN 输出 |
+| 索引建议 | P3 | ✅ 完成 | 解析 EXPLAIN FORMAT=JSON，识别全表扫描/Using filesort |
 | 执行计划图形化 | P2 | ✅ 完成 | 树形/表格/原始 JSON 三视图 |
 
 ### 5.2 开发细节
 
-#### 5.2.1 执行计划图形化（待开发）
+#### 5.2.1 执行计划图形化（已完成）
 
 **前端增强:** SQLWorkbench.vue 中增强 EXPLAIN 结果展示
 - JSON 格式化展示 → 树形组件展示
 - 颜色标记：全表扫描(红)、索引扫描(黄)、走索引(绿)
 - 展示预计行数/耗时
+
+#### 5.2.2 索引建议（已完成）
+
+**后端:** `backend/services/index_advisor.py` + `backend/routers/index_advisor.py`
+
+分析引擎核心规则：
+1. 全表扫描 (ALL) + 行数 > 100 → 建议在 WHERE/JOIN 条件列上加索引
+2. 索引使用但扫描行数多 → 建议覆盖索引（包含回表列）
+3. Using filesort → 建议在 ORDER BY 列上加排序索引
+4. Using temporary → 建议在 GROUP BY 列上加索引
+
+**前端:** SQLWorkbench.vue 的 EXPLAIN 弹窗新增"💡 索引建议"标签页
+- 首次点击自动触发分析
+- 显示查询摘要（涉及表、扫描行数、访问类型）
+- 每条建议有优先级标签（高/中/低）、原因说明、可复制的 CREATE INDEX SQL
 
 ---
 
