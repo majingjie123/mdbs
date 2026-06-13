@@ -70,12 +70,35 @@ onUnmounted(() => {
 
 // ── 查询历史 (localStorage) ──
 const historyKey = computed(() => `sql_history_${props.connId}`)
+const favHistoryKey = computed(() => `sql_fav_${props.connId}`)
 const queryHistory = ref<{ sql: string; time: string }[]>([])
+const favQueries = ref<{ sql: string; name: string }[]>([])
+const historySearch = ref('')
+const showHistoryPanel = ref(false)
+
+const filteredHistory = computed(() => {
+  if (!historySearch.value.trim()) return queryHistory.value
+  const kw = historySearch.value.toLowerCase()
+  return queryHistory.value.filter(h => h.sql.toLowerCase().includes(kw))
+})
+
+const groupedHistory = computed(() => {
+  const groups: Record<string, typeof queryHistory.value> = {}
+  const items = filteredHistory.value
+  for (const item of items) {
+    const date = item.time.split(' ')[0] || '其他'
+    if (!groups[date]) groups[date] = []
+    groups[date].push(item)
+  }
+  return groups
+})
 
 function loadHistory() {
   try {
     const raw = localStorage.getItem(historyKey.value)
     if (raw) queryHistory.value = JSON.parse(raw)
+    const favRaw = localStorage.getItem(favHistoryKey.value)
+    if (favRaw) favQueries.value = JSON.parse(favRaw)
   } catch { /* ignore */ }
 }
 
@@ -94,6 +117,36 @@ function addHistory(sql: string) {
 
 function selectFromHistory(item: { sql: string }) {
   sqlText.value = item.sql
+  showHistoryPanel.value = false
+}
+
+function toggleFav(item: { sql: string }) {
+  const idx = favQueries.value.findIndex(f => f.sql === item.sql)
+  if (idx >= 0) {
+    favQueries.value.splice(idx, 1)
+    message.info('已取消收藏')
+  } else {
+    const name = prompt('收藏名称（用于快速识别）:', item.sql.slice(0, 40) + '...')
+    if (!name) return
+    favQueries.value.unshift({ sql: item.sql, name })
+    message.success('已收藏')
+  }
+  localStorage.setItem(favHistoryKey.value, JSON.stringify(favQueries.value))
+}
+
+function isFav(item: { sql: string }) {
+  return favQueries.value.some(f => f.sql === item.sql)
+}
+
+function selectFromFav(item: { sql: string }) {
+  sqlText.value = item.sql
+  showHistoryPanel.value = false
+}
+
+function deleteFav(item: { sql: string }) {
+  favQueries.value = favQueries.value.filter(f => f.sql !== item.sql)
+  localStorage.setItem(favHistoryKey.value, JSON.stringify(favQueries.value))
+  message.success('已删除收藏')
 }
 
 function clearHistory() {
@@ -846,30 +899,6 @@ async function doSaveQuery(overwrite?: boolean) {
         <n-space size="small">
           <n-tag v-if="props.dbName" type="info" size="small">{{ props.dbName }}</n-tag>
 
-          <!-- 查询历史 -->
-          <n-popover v-if="queryHistory.length > 0" trigger="click" placement="bottom-start" :width="400">
-            <template #trigger>
-              <n-button size="tiny" quaternary>📜 历史 ({{ queryHistory.length }})</n-button>
-            </template>
-            <div class="history-panel">
-              <div class="history-header">
-                <span style="font-weight:600;font-size:13px">查询历史</span>
-                <n-button size="tiny" text type="error" @click="clearHistory">清空</n-button>
-              </div>
-              <div class="history-list">
-                <div
-                  v-for="(item, idx) in queryHistory"
-                  :key="idx"
-                  class="history-item"
-                  @click="selectFromHistory(item)"
-                >
-                  <div class="history-sql">{{ item.sql.slice(0, 120) }}{{ item.sql.length > 120 ? '...' : '' }}</div>
-                  <div class="history-time">{{ item.time }}</div>
-                </div>
-              </div>
-            </div>
-          </n-popover>
-
           <n-button size="tiny" quaternary @click="formatSql" title="格式化 SQL">美化</n-button>
           <n-button size="tiny" quaternary @click="clearSql" title="清空编辑器">清空</n-button>
           <n-button size="tiny" quaternary @click="openSaveQueryDialog" title="保存当前 SQL 到侧边栏查询列表">
@@ -897,10 +926,13 @@ async function doSaveQuery(overwrite?: boolean) {
           <n-button size="tiny" @click="runExplain" title="执行 EXPLAIN 分析查询计划">
             📊 EXPLAIN
           </n-button>
+          <n-button size="tiny" @click="showHistoryPanel = !showHistoryPanel" :type="showHistoryPanel ? 'info' : 'default'">
+            📜 历史
+          </n-button>
         </n-space>
       </div>
 
-      <div class="editor-body">
+      <div class="editor-body" style="position: relative;">
         <div class="editor-sql-area">
           <SqlEditor
             ref="sqlEditorRef"
@@ -909,6 +941,39 @@ async function doSaveQuery(overwrite?: boolean) {
             :dbName="props.dbName"
             @execute="runQuery"
           />
+        </div>
+        <!-- 历史面板 -->
+        <div v-if="showHistoryPanel" class="history-panel">
+          <div class="history-header">
+            <span>查询历史</span>
+            <n-space size="small">
+              <n-input v-model:value="historySearch" placeholder="搜索历史..." clearable size="tiny" style="width: 150px" />
+              <n-button size="tiny" quaternary @click="clearHistory">清除</n-button>
+              <n-button size="tiny" quaternary @click="showHistoryPanel = false">✕</n-button>
+            </n-space>
+          </div>
+          <div class="history-body">
+            <!-- 收藏列表 -->
+            <div v-if="favQueries.length" class="history-section">
+              <div class="history-section-title">📌 收藏</div>
+              <div v-for="(item, i) in favQueries" :key="'fav' + i" class="history-item" @click="selectFromFav(item)">
+                <div class="history-item-name">{{ item.name }}</div>
+                <n-button size="tiny" quaternary type="error" @click.stop="deleteFav(item)">✕</n-button>
+              </div>
+            </div>
+            <!-- 历史列表 -->
+            <div v-for="(items, date) in groupedHistory" :key="date" class="history-section">
+              <div class="history-section-title">{{ date }}</div>
+              <div v-for="(item, i) in items" :key="i" class="history-item" @click="selectFromHistory(item)">
+                <div class="history-item-time">{{ item.time.split(' ')[1] || '' }}</div>
+                <div class="history-item-sql">{{ item.sql.slice(0, 80) }}</div>
+                <n-button size="tiny" quaternary @click.stop="toggleFav(item)">
+                  {{ isFav(item) ? '★' : '☆' }}
+                </n-button>
+              </div>
+            </div>
+            <n-empty v-if="filteredHistory.length === 0 && favQueries.length === 0" description="暂无历史记录" />
+          </div>
         </div>
       </div>
     </div>
@@ -1200,6 +1265,75 @@ async function doSaveQuery(overwrite?: boolean) {
 }
 
 .shortcut-hint { color: #666; font-weight: 400; font-size: 11px; }
+
+/* ── 历史面板 ── */
+.history-panel {
+  position: absolute;
+  right: 0;
+  top: 0;
+  width: 380px;
+  height: 100%;
+  background: var(--bg-sidebar);
+  border-left: 1px solid var(--color-border, #3c3c3c);
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+}
+.history-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--color-border, #3c3c3c);
+  font-size: 13px;
+  font-weight: bold;
+  flex-shrink: 0;
+}
+.history-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+.history-section {
+  margin-bottom: 4px;
+}
+.history-section-title {
+  padding: 4px 10px;
+  font-size: 11px;
+  color: #888;
+  text-transform: uppercase;
+}
+.history-item {
+  display: flex;
+  align-items: center;
+  padding: 4px 10px;
+  cursor: pointer;
+  gap: 6px;
+  font-size: 12px;
+}
+.history-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+.history-item-time {
+  color: #666;
+  font-size: 11px;
+  width: 40px;
+  flex-shrink: 0;
+}
+.history-item-sql {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #ccc;
+  font-family: 'Cascadia Code', 'Consolas', monospace;
+  font-size: 11px;
+}
+.history-item-name {
+  flex: 1;
+  color: #e0e0e0;
+  font-size: 12px;
+}
 
 /* ── 拖拽分隔条 ── */
 .split-handle {
