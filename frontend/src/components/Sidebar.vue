@@ -176,16 +176,93 @@ const ctxMenu = ref({ visible: false, x: 0, y: 0, node: null as TreeNode | null 
 const ctxMenuItems = computed(() => getMenuItems(ctxMenu.value.node?.nodeType ?? ''))
 
 // ── 初始化加载连接列表 ──
+// ── 收藏夹 ──
+interface FavoriteItem {
+  id: string
+  label: string
+  nodeType: string
+  connId: number
+  dbName?: string
+  schemaName?: string
+  tableName?: string
+  timestamp: number
+}
+
+const FAV_KEY = 'mdbs_favorites'
+const favorites = ref<FavoriteItem[]>([])
+
+function loadFavorites() {
+  try {
+    const raw = localStorage.getItem(FAV_KEY)
+    if (raw) favorites.value = JSON.parse(raw)
+  } catch { /* ignore */ }
+}
+function saveFavorites() {
+  try { localStorage.setItem(FAV_KEY, JSON.stringify(favorites.value)) } catch { /* ignore */ }
+}
+
+function addToFavorites(node: TreeNode) {
+  if (favorites.value.some(f => f.id === node.key)) {
+    message.info('已在收藏夹中')
+    return
+  }
+  favorites.value.unshift({
+    id: node.key,
+    label: node.label.replace(/^[🔔📂📄📐📦]\s*/, ''),
+    nodeType: node.nodeType || 'table',
+    connId: node.connId || 0,
+    dbName: node.dbName,
+    schemaName: node.schemaName,
+    tableName: node.rawData?.TABLE_NAME || node.rawData?.name,
+    timestamp: Date.now(),
+  })
+  saveFavorites()
+  message.success(`已收藏: ${favorites.value[0].label}`)
+}
+
+function removeFromFavorites(key: string) {
+  favorites.value = favorites.value.filter(f => f.id !== key)
+  saveFavorites()
+  message.success('已取消收藏')
+}
+
+/**
+ * 构建收藏夹的树节点列表
+ */
+function buildFavTreeNodes(): TreeNode[] {
+  return favorites.value.map(f => ({
+    label: `⭐ ${f.label}`,
+    key: `fav-${f.id}`,
+    isLeaf: true,
+    nodeType: `fav-${f.nodeType}`,
+    connId: f.connId,
+    dbName: f.dbName,
+    schemaName: f.schemaName,
+    rawData: { TABLE_NAME: f.tableName, TRIGGER_NAME: f.label },
+  }))
+}
+
 async function refreshConnections() {
   await store.loadConnections()
-  treeData.value = store.connections.map((c: any) => ({
-    label: c.name,
-    key: `conn-${c.id}`,
-    isLeaf: false,
-    nodeType: 'connection',
-    connId: c.id,
-    children: [],
-  }))
+  // 收藏夹在最前面
+  const favNodes = buildFavTreeNodes()
+  treeData.value = [
+    {
+      label: `⭐ 收藏夹 (${favNodes.length})`,
+      key: 'fav-root',
+      isLeaf: false,
+      nodeType: 'fav-folder',
+      children: favNodes,
+    },
+    ...store.connections.map((c: any) => ({
+      label: c.name,
+      key: `conn-${c.id}`,
+      isLeaf: false,
+      nodeType: 'connection',
+      connId: c.id,
+      children: [],
+    })),
+  ]
 }
 
 // ── 加载数据库列表 ──
@@ -535,6 +612,27 @@ function onDblClick(node: TreeNode) {
       schemaName: node.schemaName || '',
     })
   }
+
+  // 收藏夹项 → 按类型打开
+  if (type?.startsWith('fav-')) {
+    const innerType = type.replace('fav-', '')
+    switch (innerType) {
+      case 'table':
+        store.openTab('table-browser', node.label, { connId: node.connId, dbName: node.dbName, tableName: node.rawData?.TABLE_NAME })
+        break
+      case 'view':
+        store.openTab('view-manager', node.label, { connId: node.connId, dbName: node.dbName, viewName: node.rawData?.TABLE_NAME })
+        break
+      case 'function':
+        store.openTab('function-manager', node.label, { connId: node.connId, dbName: node.dbName, funcName: node.label.replace('⭐ ', '') })
+        break
+      case 'trigger':
+        store.openTab('trigger-manager', node.label, { connId: node.connId, dbName: node.dbName, triggerName: node.rawData?.TRIGGER_NAME || node.label.replace('⭐ ', '') })
+        break
+      default:
+        store.openTab('sql-workbench', node.label, { connId: node.connId, dbName: node.dbName })
+    }
+  }
 }
 
 // ── 展开/折叠逻辑 ──
@@ -803,6 +901,66 @@ function handleCtxAction(action: string | undefined) {
       break
     }
 
+    // ── 收藏夹 ──
+    case 'add-fav':
+      addToFavorites(node)
+      closeCtxMenu()
+      break
+    case 'remove-fav':
+    case 'clear-fav': {
+      if (action === 'clear-fav') {
+        dialog.warning({
+          title: '清空收藏夹',
+          content: '确定要清空所有收藏吗？',
+          positiveText: '清空',
+          negativeText: '取消',
+          onPositiveClick: () => {
+            favorites.value = []
+            saveFavorites()
+            refreshConnections()
+            message.success('收藏夹已清空')
+          },
+        })
+      } else {
+        // 获取原始 key（fav- 前缀后）
+        const originalKey = node.key.replace('fav-', '')
+        removeFromFavorites(originalKey)
+        refreshConnections()
+      }
+      closeCtxMenu()
+      break
+    }
+    case 'open-fav': {
+      // 收藏项：根据 nodeType 打开对应视图
+      const type = node.nodeType?.replace('fav-', '') || ''
+      switch (type) {
+        case 'connection':
+          store.openTab('sql-workbench', node.label, { connId, dbName })
+          break
+        case 'database':
+          store.openTab('sql-workbench', node.label, { connId, dbName })
+          break
+        case 'table':
+          store.openTab('table-browser', node.label, { connId, dbName, tableName: node.rawData?.TABLE_NAME })
+          break
+        case 'view':
+          store.openTab('view-manager', node.label, { connId, dbName, viewName: node.rawData?.TABLE_NAME })
+          break
+        case 'function':
+          store.openTab('function-manager', node.label, { connId, dbName, funcName: node.label.replace('⭐ ', '') })
+          break
+        case 'trigger':
+          store.openTab('trigger-manager', node.label, {
+            connId, dbName, triggerName: node.rawData?.TRIGGER_NAME || node.label.replace('⭐ ', ''),
+          })
+          break
+        default:
+          store.openTab('sql-workbench', node.label, { connId, dbName })
+      }
+      closeCtxMenu()
+      break
+    }
+
     default:
   }
 }
@@ -819,6 +977,8 @@ function getMenuItems(nodeType: string = '') {
         { label: '创建数据库...', action: 'create-db' },
         { label: '刷新数据库列表', action: 'refresh' },
         { separator: true },
+        { label: '⭐ 添加到收藏夹', action: 'add-fav' },
+        { separator: true },
         { label: '编辑连接...', action: 'edit-connection' },
         { label: '删除连接', action: 'delete-connection' },
       ]
@@ -828,6 +988,8 @@ function getMenuItems(nodeType: string = '') {
         { label: 'AI 助手', action: 'ai-chat' },
         { separator: true },
         { label: '同步库结构...', action: 'sync-structure' },
+        { separator: true },
+        { label: '⭐ 添加到收藏夹', action: 'add-fav' },
         { separator: true },
         { label: '刷新', action: 'refresh' },
         { label: '删除数据库', action: 'delete-database' },
@@ -846,6 +1008,8 @@ function getMenuItems(nodeType: string = '') {
         { label: '复制表名', action: 'copy-name' },
         { label: '生成 SELECT 语句', action: 'generate-select' },
         { separator: true },
+        { label: '⭐ 添加到收藏夹', action: 'add-fav' },
+        { separator: true },
         { label: '新建查询', action: 'new-query' },
         { label: '刷新', action: 'refresh' },
       ]
@@ -858,6 +1022,8 @@ function getMenuItems(nodeType: string = '') {
         { label: '复制视图名', action: 'copy-view-name' },
         { label: '生成 SELECT 语句', action: 'generate-view-select' },
         { separator: true },
+        { label: '⭐ 添加到收藏夹', action: 'add-fav' },
+        { separator: true },
         { label: '刷新', action: 'refresh' },
       ]
     case 'function':
@@ -868,6 +1034,8 @@ function getMenuItems(nodeType: string = '') {
         { separator: true },
         { label: '复制名称', action: 'copy-func-name' },
         { separator: true },
+        { label: '⭐ 添加到收藏夹', action: 'add-fav' },
+        { separator: true },
         { label: '刷新', action: 'refresh' },
       ]
     case 'trigger':
@@ -875,6 +1043,8 @@ function getMenuItems(nodeType: string = '') {
         { label: '管理触发器', action: 'manage-trigger' },
         { separator: true },
         { label: '复制名称', action: 'copy-trigger-name' },
+        { separator: true },
+        { label: '⭐ 添加到收藏夹', action: 'add-fav' },
         { separator: true },
         { label: '刷新', action: 'refresh' },
       ]
@@ -885,7 +1055,18 @@ function getMenuItems(nodeType: string = '') {
         { label: '✏️ 重命名', action: 'rename-saved-query' },
         { label: '🗑️ 删除', action: 'delete-saved-query' },
       ]
+    case 'fav-folder':
+      return [
+        { label: '清空收藏夹', action: 'clear-fav' },
+      ]
     default:
+      if (nodeType.startsWith('fav-')) {
+        return [
+          { label: '打开', action: 'open-fav' },
+          { separator: true },
+          { label: '⭐ 从收藏夹移除', action: 'remove-fav' },
+        ]
+      }
       return [
         { label: '新建查询', action: 'new-query' },
         { label: '刷新', action: 'refresh' },
@@ -898,7 +1079,7 @@ function onDocClick() { closeCtxMenu() }
 // connections 变更时自动刷新树（新增/编辑/删除连接后即时可见）
 watch(() => store.connections, () => { refreshConnections() }, { deep: true })
 
-onMounted(() => { document.addEventListener('click', onDocClick); refreshConnections() })
+onMounted(() => { document.addEventListener('click', onDocClick); loadFavorites(); refreshConnections() })
 onUnmounted(() => document.removeEventListener('click', onDocClick))
 </script>
 
