@@ -627,6 +627,14 @@ async function onExpand(node: TreeNode) {
         connId: node.connId,
         children: [],
       })
+      mgmtItems.push({
+        label: '📊 性能监控',
+        key: `${node.key}/performance`,
+        isLeaf: false,
+        nodeType: 'folder',
+        connId: node.connId,
+        children: [],
+      })
       node.children = [...dbs, ...mgmtItems]
     } else if (parts.some((p) => p.startsWith('db-')) && parts.length === 2) {
       // 数据库 → 检查是否是 PostgreSQL 需要加载 schema
@@ -661,6 +669,9 @@ async function onExpand(node: TreeNode) {
       onDblClick(node)
     } else if (parts.some((p) => p === 'sync-plans')) {
       // 同步计划文件夹无子项, 直接打开
+      onDblClick(node)
+    } else if (parts.some((p) => p === 'performance')) {
+      // 性能监控文件夹无子项, 直接打开
       onDblClick(node)
     } else if (parts.some((p) => p === 'queries')) {
       await loadQueriesIntoFolder(node)
@@ -804,6 +815,13 @@ function onDblClick(node: TreeNode) {
   // 同步计划文件夹 → 打开同步计划管理
   if (type === 'folder' && node.key?.includes('/sync-plans')) {
     store.openTab('sync-plan-manager', '🔄 同步计划', {
+      connId: node.connId,
+    })
+  }
+
+  // 性能监控文件夹 → 打开性能监控
+  if (type === 'folder' && node.key?.includes('/performance')) {
+    store.openTab('performance-monitor', '📊 性能监控', {
       connId: node.connId,
     })
   }

@@ -31,6 +31,7 @@ from .routers import users as users_router
 from .routers import index_advisor as index_advisor_router
 from .routers import slow_queries as slow_queries_router
 from .routers import sync_plan as sync_plan_router
+from .routers import monitor as monitor_router
 
 app = FastAPI(
     title="MDBS",
