@@ -205,23 +205,91 @@ onMounted(loadDraft)
 const page = ref(1)
 const pageSize = ref(1000)
 
+// ── 多结果集 ──
+interface SavedResult {
+  sql: string
+  data: ExecResult
+  rows: any[][]
+  modifiedMap: Record<string, string>  // serializable version of _modifiedMap
+  newRowIndices: number[]
+  queryTime: number
+  id: string
+  error?: string
+}
+
+const results = ref<SavedResult[]>([])
+const activeResultIndex = ref(0)
+
+const activeResult = computed(() => results.value[activeResultIndex.value] || null)
+
 const allRows = shallowRef<any[][]>([])
 const displayRows = computed(() => {
   // 服务端分页：allRows 就是当前页数据
   return allRows.value
 })
-const totalPages = computed(() => Math.max(1, Math.ceil((result.value?.total_count || 0) / pageSize.value)))
-const totalRows = computed(() => result.value?.total_count || allRows.value.length)
+const totalPages = computed(() => Math.max(1, Math.ceil((activeResult.value?.data.total_count || 0) / pageSize.value)))
+const totalRows = computed(() => activeResult.value?.data.total_count || allRows.value.length)
 
 watch([page, pageSize], () => {
-  if (result.value) {
+  if (activeResult.value) {
     runQuery()
   }
 })
 
+// 切换结果集
+function switchResult(idx: number) {
+  if (idx < 0 || idx >= results.value.length) return
+  // 保存当前结果的状态
+  saveCurrentResultState()
+  // 切换到新结果
+  activeResultIndex.value = idx
+  restoreResultState(idx)
+}
+
+function saveCurrentResultState() {
+  const cur = results.value[activeResultIndex.value]
+  if (!cur) return
+  cur.rows = allRows.value
+  const modMap: Record<string, string> = {}
+  for (const [k, v] of _modifiedMap) modMap[k] = v
+  cur.modifiedMap = modMap
+  cur.newRowIndices = [..._newRowAbsIndices]
+  cur.queryTime = queryTime.value
+}
+
+function restoreResultState(idx: number) {
+  const cur = results.value[idx]
+  if (!cur) return
+  allRows.value = cur.rows
+  _modifiedMap.clear()
+  for (const [k, v] of Object.entries(cur.modifiedMap)) _modifiedMap.set(k, v)
+  _newRowAbsIndices.clear()
+  for (const n of cur.newRowIndices) _newRowAbsIndices.add(n)
+  queryTime.value = cur.queryTime
+  _cellVersion.value++
+  nextTick(() => updateScrollButtons())
+}
+
+function closeResult(idx: number) {
+  if (results.value.length <= 1) {
+    // 最后一个结果 → 清空
+    results.value = []
+    activeResultIndex.value = 0
+    allRows.value = []
+    _modifiedMap.clear()
+    _cellVersion.value++
+    return
+  }
+  results.value.splice(idx, 1)
+  if (activeResultIndex.value >= results.value.length) {
+    activeResultIndex.value = results.value.length - 1
+  }
+  restoreResultState(activeResultIndex.value)
+}
+
 // 将二维数组转为对象数组（缓存，仅 displayRows 或 columns 变化时重算）
 const mappedRows = computed(() => {
-  const cols = result.value?.columns
+  const cols = activeResult.value?.data?.columns
   if (!cols) return []
   const rows = displayRows.value
   const out: Record<string, any>[] = new Array(rows.length)
@@ -266,8 +334,8 @@ function scrollRightStep() {
 
 // 水平滚动：每列按 160px 计算总宽度
 const scrollX = computed(() => {
-  if (!result.value?.columns) return 0
-  return Math.max(result.value.columns.length * 160, 600)
+  if (!activeResult.value?.data?.columns) return 0
+  return Math.max(activeResult.value.data.columns.length * 160, 600)
 })
 
 // 结果集自适应高度：随窗口大小变化
@@ -308,8 +376,8 @@ const saving = ref(false)
 // 行选择状态
 const checkedRowKeys = ref<(string | number)[]>([])
 const allRowKeys = computed(() => {
-  if (!result.value?.columns) return []
-  const cols = result.value.columns
+  if (!activeResult.value?.data?.columns) return []
+  const cols = activeResult.value.data.columns
   if (!cols.length) return []
   return mappedRows.value.map((_, idx) => (page.value - 1) * pageSize.value + idx)
 })
@@ -319,11 +387,11 @@ const _newRowAbsIndices = new Set<number>()
 const hasNewRows = computed(() => _newRowAbsIndices.size > 0)
 
 function addEmptyRow() {
-  if (!result.value?.columns || result.value.columns.length === 0) {
+  if (!activeResult.value?.data?.columns || activeResult.value.data.columns.length === 0) {
     message.warning('请先执行查询')
     return
   }
-  const cols = result.value.columns
+  const cols = activeResult.value.data.columns
   const emptyRow: any[] = new Array(cols.length).fill(null)
   allRows.value = [...allRows.value, emptyRow]
 
@@ -341,7 +409,7 @@ function addEmptyRow() {
 
 function removeNewRowMarker(absRow: number) {
   _newRowAbsIndices.delete(absRow)
-  for (let ci = 0; ci < (result.value?.columns?.length || 0); ci++) {
+  for (let ci = 0; ci < (activeResult.value?.data?.columns?.length || 0); ci++) {
     _modifiedMap.delete(`${absRow}-${ci}`)
   }
 }
@@ -364,7 +432,7 @@ async function deleteSelectedRows() {
     return
   }
 
-  const cols = result.value?.columns
+  const cols = activeResult.value?.data?.columns
   if (!cols || cols.length === 0) return
   const pkCol = cols[0] // 默认第一列为主键
 
@@ -460,8 +528,8 @@ const filteredRows = computed(() => {
 
 // 列定义 computed，仅 columns 变化时重建（不依赖 page/pageSize）
 const tableColumns = computed(() => {
-  if (!result.value?.columns) return []
-  const cols = result.value.columns
+  if (!activeResult.value?.data?.columns) return []
+  const cols = activeResult.value.data.columns
   const defs = cols.map((col, ci) => markRaw({
     title: col,
     key: col,
@@ -563,22 +631,41 @@ async function runQuery() {
         page.value = 1
         _lastSql.value = sqlText.value
       }
-      result.value = res.data
-      allRows.value = res.data.rows || []
+
+      // 检查是否已有同名 SQL 的结果（覆盖更新）
+      const existingIdx = results.value.findIndex(r => r.sql === sqlText.value)
+      const newResult: SavedResult = {
+        sql: sqlText.value,
+        data: res.data,
+        rows: res.data.rows || [],
+        modifiedMap: {},
+        newRowIndices: [],
+        queryTime: performance.now() - t0,
+        id: Date.now().toString(36),
+      }
+
+      if (existingIdx >= 0) {
+        results.value[existingIdx] = newResult
+        activeResultIndex.value = existingIdx
+      } else {
+        results.value.push(newResult)
+        activeResultIndex.value = results.value.length - 1
+      }
+
+      allRows.value = newResult.rows
       _modifiedMap.clear()
+      _newRowAbsIndices.clear()
       _cellVersion.value++
       addHistory(sqlText.value)
       clearDraft()
       nextTick(() => updateScrollButtons())
     } else {
       error.value = res.message || '执行失败'
-      result.value = null
       allRows.value = []
     }
   } catch (e: any) {
     if (e.name === 'AbortError' || e.message?.includes('abort')) return
     error.value = e.message
-    result.value = null
     allRows.value = []
   } finally {
     abortController.value = null
@@ -718,7 +805,7 @@ async function handleBatchAction(key: string) {
 
   if (key === 'delete') {
     const rows = checkedRowKeys.value.map((k: string | number) => Number(k))
-    const pkCol = result.value?.columns[0] || 'id'
+    const pkCol = activeResult.value?.data?.columns[0] || 'id'
     const ids = rows.map((r: number) => {
       const rowIdx = r - (page.value - 1) * pageSize.value
       const row = allRows.value[rowIdx as number]
@@ -747,13 +834,13 @@ async function handleBatchAction(key: string) {
   }
 
   if (key === 'set') {
-    const col = result.value?.columns[0]
+    const col = activeResult.value?.data?.columns[0]
     if (!col) return
     const newVal = prompt(`请输入要设置的统一值（将设置到选中的 ${checkedRowKeys.value.length} 行的 ${col} 列）:`)
     if (newVal === null) return
 
     const rows = checkedRowKeys.value.map(k => Number(k))
-    const pkCol = result.value?.columns[0] || 'id'
+    const pkCol = activeResult.value?.data?.columns[0] || 'id'
     const ids = rows.map((r: number) => {
       const rowIdx = r - (page.value - 1) * pageSize.value
       const row = allRows.value[rowIdx]
@@ -844,7 +931,7 @@ async function saveEdits() {
     return
   }
 
-  const cols = result.value?.columns
+  const cols = activeResult.value?.data?.columns
   if (!cols || cols.length === 0) return
 
   saving.value = true
@@ -977,13 +1064,13 @@ async function saveEdits() {
 // 导出当前结果集
 const exporting = ref(false)
 async function exportResult() {
-  if (!result.value || allRows.value.length === 0) {
+  if (!activeResult.value?.data || allRows.value.length === 0) {
     message.warning('没有可导出的数据')
     return
   }
   exporting.value = true
   try {
-    const cols = result.value.columns
+    const cols = activeResult.value.data.columns
     const data = [cols, ...allRows.value.map(row => row.map(v => v ?? ''))]
     const BOM = '\uFEFF'
     const csv = BOM + data.map(row =>
@@ -1207,18 +1294,32 @@ async function doSaveQuery(overwrite?: boolean) {
     </n-alert>
 
     <!-- 结果集 -->
-    <div class="result-panel" v-if="result && result.columns.length">
+    <div class="result-panel" v-if="activeResult?.data?.columns?.length">
       <div class="result-toolbar">
         <span class="toolbar-title">
           查询结果
-          <n-tag v-if="result" size="tiny" :type="result.is_query ? 'success' : 'warning'">
-            <template v-if="result.is_query">
-              {{ result?.total_count ?? allRows.length }} 行
+          <n-tag v-if="results.length > 0 && activeResultIndex >= 0" size="tiny" :type="activeResult?.data?.is_query ? 'success' : 'warning'">
+            <template v-if="activeResult?.data?.is_query">
+              {{ activeResult?.data?.total_count ?? allRows.length }} 行
             </template>
             <template v-else>
-              {{ result.affected }} 行受影响
+              {{ activeResult?.data?.affected }} 行受影响
             </template>
           </n-tag>
+          <!-- 结果选项卡 -->
+          <n-space v-if="results.length > 1" size="small" style="margin-left: 12px;">
+            <n-button
+              v-for="(r, idx) in results"
+              :key="r.id"
+              size="tiny"
+              :type="idx === activeResultIndex ? 'primary' : 'default'"
+              @click="switchResult(idx)"
+            >
+              #{{ idx + 1 }}
+              <span style="margin: 0 2px; max-width: 60px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block;">{{ r.sql.slice(0, 20) }}{{ r.sql.length > 20 ? '...' : '' }}</span>
+              <n-button size="tiny" quaternary type="error" @click.stop="closeResult(idx)" style="padding: 0 2px; min-width: 0;">✕</n-button>
+            </n-button>
+          </n-space>
         </span>
         <n-space size="small">
           <!-- 筛选输入 -->
@@ -1238,7 +1339,7 @@ async function doSaveQuery(overwrite?: boolean) {
           </n-tag>
           <!-- 新增行按钮 -->
           <n-button
-            v-if="result?.is_query"
+            v-if="activeResult?.data?.is_query"
             size="tiny"
             @click="addEmptyRow"
             title="在结果底部添加一行空数据"

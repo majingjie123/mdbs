@@ -35,7 +35,7 @@
 | 列头排序 | P1 | ✅ 完成 | n-data-table sorter |
 | EXPLAIN 执行计划 | P1 | ✅ 完成 | 弹窗展示 |
 | 常用 SQL 片段收藏 | P0 | ✅ 完成 | localStorage 存储 + SnippetPanel |
-| 多个查询结果分屏 | P1 | ❌ 待开发 | 多结果标签页 |
+| 多个查询结果分屏 | P1 | ✅ 完成 | results 数组 + 选项卡切换 |
 | 结果中新增/删除行 | P0 | ✅ 完成 | 行操作按钮 + 确认弹窗 |
 | 自动保存草稿 | P0 | ✅ 完成 | localStorage 1.5s 防抖自动保存 |
 | 括号匹配高亮 | P2 | ❌ 待开发 | CodeMirror 插件 |
@@ -65,27 +65,16 @@ SqlEditor.vue 中使用 CodeMirror 6：
 - 编辑/删除已有片段
 - 与查询历史面板共存，左右独立开关
 
-#### 1.2.3 多个查询结果分屏（待开发）
+#### 1.2.3 多个查询结果分屏（已完成）
 
-**方案**: SQLWorkbench 中维护 `results` 数组，每次查询追加新结果，支持切换查看。
+**实现**: SQLWorkbench 将单 `result` 重构为 `results: SavedResult[]` 数组 + 选项卡切换
 
-```typescript
-// 多结果状态
-const results = ref<ExecResult[]>([])
-const activeResultIndex = ref(0)
-
-// 执行时追加
-async function runQuery() {
-  const res = await execute(...)
-  results.value.push(res)
-  activeResultIndex.value = results.value.length - 1
-}
-```
-
-**测试用例:**
-- 连续执行多个 SQL，所有结果保留
-- 切换查看不同结果
-- 关闭单个结果
+- 每次查询创建 `SavedResult`（含 SQL、数据、行、编辑状态快照）
+- 相同 SQL 覆盖更新（翻页复用），不同 SQL 追加新结果
+- 结果工具栏行首显示选项卡：`#1 SELECT tbl1 | #2 SHOW STATUS | ...`
+- 每个选项卡显示 SQL 前 20 字符 + ✕ 关闭按钮
+- 切换时 `saveCurrentResultState()`/`restoreResultState()` 保存/恢复行数据、编辑状态、新增行标记
+- 关闭最后一个结果时清空面板
 
 ---
 
