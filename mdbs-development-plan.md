@@ -111,7 +111,7 @@ async function runQuery() {
 |--------|--------|------|----------|
 | 单元格直接编辑 | P0 | ✅ 完成 | SQLWorkbench.vue + TableBrowser.vue |
 | 批量数据修改 | P1 | ✅ 完成 | 选中行→批量操作 |
-| 新增/删除行 | P0 | ❌ 待开发 | 结果表格底部添加 |
+| 新增/删除行 | P0 | ✅ 完成 | 新增空行 + 勾选删除 + 确认弹窗 |
 | 数据筛选/过滤 | P1 | ✅ 完成 | filterText + filteredRows |
 | 列头排序 | P1 | ✅ 完成 | sorter |
 | 分页查看 | P1 | ✅ 完成 | 后端分页 + 前端翻页 |
@@ -128,33 +128,27 @@ SQLWorkbench.vue `startEdit()` / `commitEdit()` / `saveEdits()`:
 - 自动识别主键列用于 WHERE 条件
 - 修改未保存时显示 "💾 保存修改 (N)" 按钮
 
-#### 2.2.2 新增/删除行（待开发）
+#### 2.2.2 新增/删除行（已完成）
 
-**前端 SQLWorkbench.vue 扩展：**
+SQLWorkbench.vue 实现行级新增/删除：
 
-```typescript
-// 新增空行
-function addEmptyRow() {
-  if (!result.value?.columns) return
-  const emptyRow: Record<string, any> = {}
-  result.value.columns.forEach(col => { emptyRow[col] = null })
-  // 插入到表格底部
-  allRows.value.push(emptyRow)
-}
+**新增行：**
+- `addEmptyRow()` — 在 `allRows` 末尾追加空行（所有列 = null）
+- 空行标记为"新行"（`_newRowAbsIndices` Set），所有单元格标记为待编辑
+- 双击编辑单元格后，`saveEdits()` 会自动识别新行并生成 INSERT SQL
+- 保存成功后移除新行标记
 
-// 删除选中行
-async function deleteSelectedRows() {
-  const sql = `DELETE FROM ${tableName} WHERE ${pkColumn} IN (${selectedPks.join(',')})`
-  await api.executeSQL(connId, sql)
-  // 重新查询
-}
-```
+**删除行：**
+- 勾选勾选框 → 点击"🗑️ 删除行"按钮
+- 确认弹窗，区分"未保存新行"和"数据库已有行"
+- 新行直接从 `allRows` 移除（不操作数据库）
+- 已有行生成 DELETE WHERE pk = ? 参数化 SQL
+- 批量操作（`handleBatchAction`）下拉中的"批量删除行"仍然保留
 
-**测试用例:**
-- 点击"新增行"按钮出现空行
-- 编辑空行数据后保存
-- 勾选行→删除确认→执行 DELETE
-- 新增行后取消
+**UI：**
+- 结果工具栏始终显示"➕ 新增行"按钮（查询结果场景）
+- 勾选行后显示"🗑️ 删除行"（红色）和"已选 N 行"标签
+- 保存按钮显示总修改数，如有新行则标注 `(含N新行)`
 
 ---
 

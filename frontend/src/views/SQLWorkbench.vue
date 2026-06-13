@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, h, shallowRef, markRaw, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import { api, ExecResult } from '../api'
-import { useMessage } from 'naive-ui'
+import { useMessage, useDialog } from 'naive-ui'
 import SqlEditor from '../components/SqlEditor.vue'
 import AIAssistantPanel from '../components/AIAssistantPanel.vue'
 const props = withDefaults(defineProps<{
@@ -21,6 +21,7 @@ const props = withDefaults(defineProps<{
 })
 
 const message = useMessage()
+const dialog = useDialog()
 
 const sqlText = ref(props.initialSql || `SELECT 1`)
 const result = ref<ExecResult | null>(null)
@@ -268,6 +269,135 @@ const allRowKeys = computed(() => {
   if (!cols.length) return []
   return mappedRows.value.map((_, idx) => (page.value - 1) * pageSize.value + idx)
 })
+
+// ── 新增行 ──
+const _newRowAbsIndices = new Set<number>()
+const hasNewRows = computed(() => _newRowAbsIndices.size > 0)
+
+function addEmptyRow() {
+  if (!result.value?.columns || result.value.columns.length === 0) {
+    message.warning('请先执行查询')
+    return
+  }
+  const cols = result.value.columns
+  const emptyRow: any[] = new Array(cols.length).fill(null)
+  allRows.value = [...allRows.value, emptyRow]
+
+  const relRowIdx = allRows.value.length - 1
+  const absRow = (page.value - 1) * pageSize.value + relRowIdx
+
+  // 标记所有列为"待插入"，让用户双击编辑
+  for (let ci = 0; ci < cols.length; ci++) {
+    _modifiedMap.set(`${absRow}-${ci}`, '')
+  }
+  _newRowAbsIndices.add(absRow)
+  _cellVersion.value++
+  message.success('已添加空行，双击单元格编辑值')
+}
+
+function removeNewRowMarker(absRow: number) {
+  _newRowAbsIndices.delete(absRow)
+  for (let ci = 0; ci < (result.value?.columns?.length || 0); ci++) {
+    _modifiedMap.delete(`${absRow}-${ci}`)
+  }
+}
+
+// ── 删除行 ──
+const deleting = ref(false)
+async function deleteSelectedRows() {
+  if (checkedRowKeys.value.length === 0) {
+    message.warning('请先勾选要删除的行')
+    return
+  }
+  if (!props.connId) {
+    message.warning('连接不存在')
+    return
+  }
+
+  const tableName = guessTableName(sqlText.value)
+  if (!tableName) {
+    message.warning('无法确定表名，请使用 SELECT * FROM table 查询')
+    return
+  }
+
+  const cols = result.value?.columns
+  if (!cols || cols.length === 0) return
+  const pkCol = cols[0] // 默认第一列为主键
+
+  // 分离"新行"和"已有行"
+  const newAbsRows: number[] = []
+  const existingAbsRows: number[] = []
+
+  for (const k of checkedRowKeys.value) {
+    const absRow = Number(k)
+    if (_newRowAbsIndices.has(absRow)) {
+      newAbsRows.push(absRow)
+    } else {
+      existingAbsRows.push(absRow)
+    }
+  }
+
+  let msg = `确定要删除 ${checkedRowKeys.value.length} 行吗？`
+  if (newAbsRows.length > 0) {
+    msg += `\n（其中 ${newAbsRows.length} 行为未保存的新行）`
+  }
+  msg += '\n此操作不可撤销！'
+
+  dialog.warning({
+    title: '删除行',
+    content: msg,
+    positiveText: '删除',
+    negativeText: '取消',
+    onPositiveClick: async () => {
+      deleting.value = true
+      try {
+        // 1) 先从 allRows 移除新行（无需数据库操作）
+        if (newAbsRows.length > 0) {
+          const newRelRows = new Set(newAbsRows.map(abs => abs - (page.value - 1) * pageSize.value))
+          allRows.value = allRows.value.filter((_, idx) => !newRelRows.has(idx))
+          for (const abs of newAbsRows) {
+            _newRowAbsIndices.delete(abs)
+            for (let ci = 0; ci < (cols?.length || 0); ci++) {
+              _modifiedMap.delete(`${abs}-${ci}`)
+            }
+          }
+        }
+
+        // 2) 删除已有行 → 发 DELETE SQL
+        if (existingAbsRows.length > 0) {
+          const pkValues = existingAbsRows.map(abs => {
+            const relRow = abs - (page.value - 1) * pageSize.value
+            return allRows.value[relRow]?.[0] // pkCol = columns[0]
+          }).filter(v => v !== null && v !== undefined)
+
+          if (pkValues.length > 0) {
+            const deleteSqls = pkValues.map(id => ({
+              sql: `DELETE FROM ${tableName} WHERE ${pkCol} = ?`,
+              params: [id],
+            }))
+            const res: any = await api.executeBatch(props.connId, deleteSqls, props.dbName || undefined)
+            if (!res.success) {
+              message.error('删除失败: ' + (res.message || ''))
+              return
+            }
+          }
+
+          // 从 allRows 移除已删除的已有行
+          const existingRelRows = new Set(existingAbsRows.map(abs => abs - (page.value - 1) * pageSize.value))
+          allRows.value = allRows.value.filter((_, idx) => !existingRelRows.has(idx))
+        }
+
+        message.success(`已删除 ${checkedRowKeys.value.length} 行`)
+        checkedRowKeys.value = []
+        _cellVersion.value++
+      } catch (e: any) {
+        message.error('删除失败: ' + (e.message || '未知错误'))
+      } finally {
+        deleting.value = false
+      }
+    },
+  })
+}
 
 // 排序状态
 const sortState = ref<{ column: string; order: 'asc' | 'desc' } | null>(null)
@@ -689,6 +819,28 @@ async function saveEdits() {
     const rowData = allRows.value[relRow]
     if (!rowData) continue
 
+    // ── 新行 → 生成 INSERT ──
+    if (_newRowAbsIndices.has(absRow)) {
+      const insertCols: string[] = []
+      const insertParams: any[] = []
+      for (let ci = 0; ci < cols.length; ci++) {
+        const newVal = modCols.get(ci)
+        // 跳过空字符串（用户未编辑的列）
+        if (newVal !== undefined && newVal !== '') {
+          insertCols.push(`\`${cols[ci]}\``)
+          insertParams.push(newVal)
+        }
+      }
+      if (insertCols.length === 0) continue
+
+      const placeholders = insertCols.map(() => '%s').join(', ')
+      const database = props.dbName ? `\`${props.dbName}\`.` : ''
+      const sql = `INSERT INTO ${database}\`${tableName}\` (${insertCols.join(', ')}) VALUES (${placeholders});`
+      sqls.push({ sql, params: insertParams })
+      continue
+    }
+
+    // ── 已有行 → 生成 UPDATE ──
     const setClauses: string[] = []
     const setParams: any[] = []
     const whereClauses: string[] = []
@@ -758,6 +910,8 @@ async function saveEdits() {
             rowData[ci] = newVal
           }
         }
+        // INSERT 成功后移除新行标记
+        _newRowAbsIndices.delete(absRow)
       }
       _modifiedMap.clear()
       _cellVersion.value++
@@ -1025,6 +1179,25 @@ async function doSaveQuery(overwrite?: boolean) {
           <n-tag v-if="checkedRowKeys.length > 0" size="tiny" type="success">
             已选 {{ checkedRowKeys.length }} 行
           </n-tag>
+          <!-- 新增行按钮 -->
+          <n-button
+            v-if="result?.is_query"
+            size="tiny"
+            @click="addEmptyRow"
+            title="在结果底部添加一行空数据"
+          >
+            ➕ 新增行
+          </n-button>
+          <!-- 删除行按钮 -->
+          <n-button
+            v-if="checkedRowKeys.length > 0"
+            size="tiny"
+            type="error"
+            :loading="deleting"
+            @click="deleteSelectedRows"
+          >
+            🗑️ 删除行
+          </n-button>
           <!-- 批量操作 -->
           <n-dropdown
             v-if="checkedRowKeys.length > 0"
@@ -1041,7 +1214,8 @@ async function doSaveQuery(overwrite?: boolean) {
             :loading="saving"
             @click="saveEdits"
           >
-            💾 保存修改 ({{ modifiedCount }})
+            💾 保存 ({{ modifiedCount + (hasNewRows ? 1 : 0) }})
+            <template v-if="hasNewRows">(含{{ _newRowAbsIndices.size }}新行)</template>
           </n-button>
           <n-button
             v-if="modifiedCount > 0"
