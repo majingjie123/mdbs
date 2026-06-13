@@ -95,6 +95,17 @@ const router = createRouter({
       component: () => import('../views/AISettingsPage.vue'),
       meta: { title: 'AI 设置' },
     },
+    {
+      path: '/triggers/:connId/:trigger',
+      name: 'trigger-manager',
+      component: () => import('../views/TriggerManager.vue'),
+      props: (route) => ({
+        connId: parseInt(route.params.connId as string),
+        triggerName: route.params.trigger as string,
+        dbName: (route.query.db as string) || '',
+        schemaName: (route.query.schema as string) || '',
+      }),
+    },
   ],
 })
 

@@ -1,7 +1,7 @@
 # MDBS 完整开发计划
 
 > 全面对比 Navicat，列出所有模块的开发计划、测试标准和指导细节
-> 生成时间: 2026-06-13
+> 基于实际代码审查 (2026-06-13)，更新已完成功能状态
 
 ---
 
@@ -27,75 +27,79 @@
 
 | 功能点 | 优先级 | 状态 | 技术方案 |
 |--------|--------|------|----------|
-| SQL 智能提示增强 | P0 | 已有基础 | CodeMirror 6 autocompletion |
-| SQL 格式化/美化 | P0 | 待开发 | sql-formatter |
-| 查询历史搜索 | P1 | 已有基础 | localStorage 增强 |
-| 常用 SQL 片段收藏 | P1 | 待开发 | 后端 SQLite 存储 |
-| 多个查询结果分屏 | P1 | 待开发 | CSS Grid 布局 |
-| 代码片段模板 | P2 | 待开发 | 内置模板 + 自定义 |
-| 括号匹配高亮 | P2 | 待开发 | CodeMirror matchbrackets |
-| 列名补全（完整加载） | P0 | 待优化 | 优化 loadSchema |
-| JOIN 智能补全 | P1 | 待开发 | 解析 SQL 上下文 |
+| SQL 智能提示/自动补全 | P0 | ✅ 完成 | CodeMirror 6 autocompletion + 表/列/视图/函数缓存 |
+| SQL 格式化/美化 | P0 | ✅ 完成 | sql-formatter (MySQL/PostgreSQL) |
+| 查询历史 | P0 | ✅ 完成 | localStorage + 搜索 + 收藏 |
+| 内联编辑数据 | P0 | ✅ 完成 | 双击编辑 + 批量保存 |
+| 数据筛选/过滤 | P1 | ✅ 完成 | 全局文本过滤 |
+| 列头排序 | P1 | ✅ 完成 | n-data-table sorter |
+| EXPLAIN 执行计划 | P1 | ✅ 完成 | 弹窗展示 |
+| 常用 SQL 片段收藏 | P0 | ❌ 待开发 | localStorage 存储 |
+| 多个查询结果分屏 | P1 | ❌ 待开发 | 多结果标签页 |
+| 结果中新增/删除行 | P0 | ❌ 待开发 | 行操作按钮 |
+| 自动保存草稿 | P0 | ❌ 待开发 | localStorage 自动保存 |
+| 括号匹配高亮 | P2 | ❌ 待开发 | CodeMirror 插件 |
+| JOIN 智能补全 | P2 | ❌ 待开发 | 解析 SQL 上下文 |
 
 ### 1.2 开发细节
 
-#### 1.2.1 SQL 格式化
+#### 1.2.1 SQL 智能提示 (已完成)
 
-```bash
-# 依赖安装
-npm install sql-formatter
-```
+SqlEditor.vue 中使用 CodeMirror 6：
+- `@codemirror/lang-sql` — SQL 语法高亮
+- `@codemirror/autocomplete` — 自定义补全函数
+- `sqlCompletions()` — 返回表名/列名/视图名/函数名/关键字
+- `parseTablePrefix()` — 支持 `表名.列名` 补全
+- `loadSchema()` — 异步加载所有表的列元数据（分批 5 个并发）
+
+#### 1.2.2 SQL 片段收藏（待开发）
+
+**方案**: 使用 localStorage 存储常用 SQL 片段，SqlEditor 或 SQLWorkbench 中嵌入片段面板。
 
 ```typescript
-// frontend/src/components/SqlEditor.vue
-import { format } from 'sql-formatter'
+// 片段数据结构
+interface SqlSnippet {
+  id: string
+  name: string
+  sql: string
+  description: string
+  createdAt: string
+}
 
-function formatSQL() {
-  const formatted = format(sqlText.value, {
-    language: 'mysql',
-    tabWidth: 2,
-    keywordCase: 'upper',
-  })
-  sqlText.value = formatted
+// 存储 key
+const SNIPPETS_KEY = 'mdbs_sql_snippets'
+
+// 在 SQL 工具栏添加片段按钮，点击弹出片段选择器
+// 选中的片段插入到编辑器光标位置
+```
+
+**测试用例:**
+- 保存当前 SQL 为片段
+- 从片段列表选择插入编辑器
+- 删除片段
+- 搜索片段
+
+#### 1.2.3 多个查询结果分屏（待开发）
+
+**方案**: SQLWorkbench 中维护 `results` 数组，每次查询追加新结果，支持切换查看。
+
+```typescript
+// 多结果状态
+const results = ref<ExecResult[]>([])
+const activeResultIndex = ref(0)
+
+// 执行时追加
+async function runQuery() {
+  const res = await execute(...)
+  results.value.push(res)
+  activeResultIndex.value = results.value.length - 1
 }
 ```
 
 **测试用例:**
-- 格式化简单 SELECT 语句
-- 格式化复杂 JOIN 查询
-- 格式化嵌套子查询
-- 格式化 INSERT/UPDATE/DELETE
-- 格式化存储过程
-- 快捷键 Ctrl+Shift+F 生效
-- 不同语言方言(MySQL/PostgreSQL)
-
-#### 1.2.2 智能提示增强
-
-**当前问题:** 只加载前 10 个表的列名
-
-**优化方案:**
-```typescript
-async function loadSchema() {
-  // 完整加载所有表的列名（带缓存）
-  const allTables = [...tables, ...views]
-  for (const t of allTables) {
-    const colRes = await api.getTableColumns(connId, t, dbName)
-    columns[t] = colRes.data.map(c => c.Field)
-  }
-}
-```
-
-**测试用例:**
-- 输入 `SELECT * FROM user` 后提示 user 表的列名
-- 输入 `user.` 提示该表的所有列
-- 输入 `JOIN ` 提示可关联的表
-- 输入 `WHERE u` 提示 users 表列名
-
-### 1.3 代码规范
-
-- SQL 编辑器组件: `frontend/src/components/SqlEditor.vue`
-- 使用 CodeMirror 6 API
-- 保持响应式，监听 connId/dbName 变化自动刷新补全
+- 连续执行多个 SQL，所有结果保留
+- 切换查看不同结果
+- 关闭单个结果
 
 ---
 
@@ -105,64 +109,52 @@ async function loadSchema() {
 
 | 功能点 | 优先级 | 状态 | 技术方案 |
 |--------|--------|------|----------|
-| 单元格直接编辑 | P0 | 部分实现 | 双击单元格触发编辑 |
-| 批量数据修改 | P0 | 待开发 | 选中多行批量更新 |
-| 新增行功能 | P0 | 待开发 | 添加空行可编辑 |
-| 删除行功能 | P0 | 待开发 | 选中行删除 |
-| 数据筛选/过滤 | P1 | 待开发 | 表头筛选器 |
-| 列头点击排序 | P1 | 待开发 | 点击列头排序 |
-| 列冻结 | P2 | 待开发 | 固定列不滚动 |
-| 列宽拖拽调整 | P2 | 待开发 | 拖拽调整列宽 |
+| 单元格直接编辑 | P0 | ✅ 完成 | SQLWorkbench.vue + TableBrowser.vue |
+| 批量数据修改 | P1 | ✅ 完成 | 选中行→批量操作 |
+| 新增/删除行 | P0 | ❌ 待开发 | 结果表格底部添加 |
+| 数据筛选/过滤 | P1 | ✅ 完成 | filterText + filteredRows |
+| 列头排序 | P1 | ✅ 完成 | sorter |
+| 分页查看 | P1 | ✅ 完成 | 后端分页 + 前端翻页 |
+| 内联编辑保存 | P0 | ✅ 完成 | 批量生成 UPDATE SQL |
 
 ### 2.2 开发细节
 
-#### 2.2.1 单元格编辑
+#### 2.2.1 单元格编辑 (已完成)
+
+SQLWorkbench.vue `startEdit()` / `commitEdit()` / `saveEdits()`:
+- 双击进入编辑模式
+- Enter 保存 / ESC 取消
+- 跟踪修改的单元格，批量生成 UPDATE
+- 自动识别主键列用于 WHERE 条件
+- 修改未保存时显示 "💾 保存修改 (N)" 按钮
+
+#### 2.2.2 新增/删除行（待开发）
+
+**前端 SQLWorkbench.vue 扩展：**
 
 ```typescript
-// 数据编辑状态
-const editingCell = ref<{ row: number, col: string } | null>(null)
-const cellValue = ref('')
-
-// 双击进入编辑
-function onCellDoubleClick(row: number, col: string, value: any) {
-  editingCell.value = { row, col }
-  cellValue.value = value
+// 新增空行
+function addEmptyRow() {
+  if (!result.value?.columns) return
+  const emptyRow: Record<string, any> = {}
+  result.value.columns.forEach(col => { emptyRow[col] = null })
+  // 插入到表格底部
+  allRows.value.push(emptyRow)
 }
 
-// 保存修改
-async function saveCellEdit() {
-  const sql = `UPDATE ${tableName} SET ${col} = ? WHERE ${pkColumn} = ?`
-  await api.executeSQL(connId, sql, [cellValue.value, pkValue])
+// 删除选中行
+async function deleteSelectedRows() {
+  const sql = `DELETE FROM ${tableName} WHERE ${pkColumn} IN (${selectedPks.join(',')})`
+  await api.executeSQL(connId, sql)
+  // 重新查询
 }
 ```
 
 **测试用例:**
-- 双击单元格进入编辑模式
-- 输入新值后回车保存
-- 按 ESC 取消编辑
-- 编辑 NULL 值
-- 编辑特殊字符
-- 编辑后数据刷新
-
-#### 2.2.2 批量修改
-
-```typescript
-// 选中多行
-const selectedRows = ref<Set<number>>(new Set())
-
-// 批量更新
-async function batchUpdate(column: string, value: any) {
-  const pks = Array.from(selectedRows.value).map(i => rows[i][pkColumn])
-  const sql = `UPDATE ${tableName} SET ${column} = ? WHERE ${pkColumn} IN (${pks.map(() => '?').join(',')})`
-  await api.executeSQL(connId, sql, [value, ...pks])
-}
-```
-
-**测试用例:**
-- 选中多行（Ctrl+点击）
-- 选中连续多行（Shift+点击）
-- 批量设置某列值
-- 批量删除选中行
+- 点击"新增行"按钮出现空行
+- 编辑空行数据后保存
+- 勾选行→删除确认→执行 DELETE
+- 新增行后取消
 
 ---
 
@@ -172,58 +164,62 @@ async function batchUpdate(column: string, value: any) {
 
 | 功能点 | 优先级 | 状态 | 技术方案 |
 |--------|--------|------|----------|
-| 可视化创建表 | P0 | 待开发 | 弹窗表单 + 动态字段 |
-| 可视化修改表 | P0 | 待开发 | 表设计器界面 |
-| 字段类型选择 | P0 | 待开发 | 下拉选择常见类型 |
-| 索引管理 | P1 | 待开发 | 索引列表 + 创建 |
-| 外键管理 | P1 | 待开发 | 外键关系配置 |
-| 表/字段注释 | P1 | 待开发 | 注释编辑框 |
-| 表设计器拖拽 | P2 | 待开发 | 拖拽排序字段 |
-| DDL 预览 | P0 | 已有 | 显示建表 SQL |
+| 可视化创建表 | P0 | ✅ 完成 | TableBrowser 对话框 |
+| 列管理(添加/修改/删除) | P0 | ✅ 完成 | 内联编辑 + ALTER SQL |
+| 索引管理 | P1 | ✅ 完成 | 添加/删除索引 |
+| 索引管理可视化 | P1 | ✅ 完成 | 弹窗编辑索引 |
+| 外键关系管理 | P2 | ❌ 待开发 | 可视化外键编辑 |
+| 列拖拽排序 | P2 | ❌ 待开发 | 拖拽排序替代按钮 |
+| 表/字段注释管理 | P1 | ✅ 完成 | 编辑注释 |
+| 修改预览 SQL | P1 | ✅ 完成 | ALTER 预览 |
 
 ### 3.2 开发细节
 
-#### 3.2.1 创建表对话框
+#### 3.2.1 创建表对话框 (已完成)
 
-```vue
-<!-- 创建表对话框 -->
-<template>
-  <n-modal v-model="show" title="创建表">
-    <n-form>
-      <n-form-item label="表名">
-        <n-input v-model="tableName" />
-      </n-form-item>
-      <!-- 字段列表 -->
-      <div v-for="(col, index) in columns" :key="index" class="column-row">
-        <n-input v-model="col.name" placeholder="字段名" />
-        <n-select v-model="col.type" :options="typeOptions" />
-        <n-switch v-model="col.nullable" />
-        <n-button @click="removeColumn(index)">删除</n-button>
-      </div>
-      <n-button @click="addColumn">添加字段</n-button>
-    </n-form>
-  </n-modal>
-</template>
-```
+TableBrowser.vue `doCreateTable()`:
+- 字段名称/类型/可空/主键/自增/默认值/注释
+- 引擎选择(MySQL) / 字符集 / 表注释
+- 生成 CREATE TABLE SQL 并执行
 
-**后端 API:**
+API: `POST /tables/{conn_id}/create`
+
+#### 3.2.2 外键关系管理（待开发）
+
+**后端 API 扩展:**
+
 ```python
 # backend/routers/tables.py
-@router.post("/create-table")
-def create_table(req: CreateTableParams, ops: DBOperations = Depends(get_db_ops)):
-    # 生成 CREATE TABLE SQL 并执行
-    sql = build_create_table_sql(req)
-    ops.execute(sql)
-    return {"success": True}
+
+@router.get("/{conn_id}/foreign-keys")
+def get_foreign_keys(conn_id: int, database: str = "", schema: str = "",
+                     storage=Depends(get_db_storage), ops=Depends(get_db_ops)):
+    """获取所有外键关系"""
+    conn_data = _get_conn_data(conn_id, storage)
+    db_type = conn_data.get("db_type", "MySQL")
+    
+    if db_type == "MySQL":
+        sql = """
+            SELECT 
+                kcu.TABLE_NAME, kcu.COLUMN_NAME, kcu.CONSTRAINT_NAME,
+                kcu.REFERENCED_TABLE_NAME, kcu.REFERENCED_COLUMN_NAME,
+                rc.UPDATE_RULE, rc.DELETE_RULE
+            FROM information_schema.KEY_COLUMN_USAGE kcu
+            JOIN information_schema.TABLE_CONSTRAINTS tc 
+                ON kcu.CONSTRAINT_NAME = tc.CONSTRAINT_NAME
+            JOIN information_schema.REFERENTIAL_CONSTRAINTS rc
+                ON kcu.CONSTRAINT_NAME = rc.CONSTRAINT_NAME
+            WHERE kcu.TABLE_SCHEMA = %s 
+                AND tc.CONSTRAINT_TYPE = 'FOREIGN KEY'
+        """
+    ...
 ```
 
 **测试用例:**
-- 创建只有主键的表
-- 创建多字段表（含各种类型）
-- 创建带外键的表
-- 创建带索引的表
-- 验证表创建成功
-- 修改已存在表结构
+- 列出表的所有外键
+- 添加外键约束
+- 删除外键约束
+- 更新 ON DELETE / ON UPDATE 规则
 
 ---
 
@@ -233,37 +229,88 @@ def create_table(req: CreateTableParams, ops: DBOperations = Depends(get_db_ops)
 
 | 功能点 | 优先级 | 状态 | 技术方案 |
 |--------|--------|------|----------|
-| 视图(View)管理 | P1 | 已有列表 | 完善 CRUD |
-| 存储过程管理 | P1 | 待开发 | 列表 + 创建/修改 |
-| 函数管理 | P1 | 待开发 | 列表 + 创建/修改 |
-| 触发器管理 | P2 | 待开发 | 列表 + 创建/修改 |
-| 事件管理 | P2 | 待开发 | 列表 + 创建/修改 |
+| 视图管理 | P1 | ✅ 完成 | ViewManager.vue |
+| 存储过程/函数管理 | P2 | ✅ 完成 | FunctionManager.vue |
+| 触发器管理 | P1 | ❌ 待开发 | TriggerManager.vue (新建) |
+| 事件管理 (MySQL Events) | P2 | ❌ 待开发 | EventManager.vue (新建) |
 
 ### 4.2 开发细节
 
-#### 4.2.1 存储过程/函数管理
+#### 4.2.1 触发器管理（待开发 - 当前最高优先级）
+
+**后端 API (`backend/routers/triggers.py`):**
 
 ```python
-# backend/routers/routines.py (新建)
-@router.get("/procedures/{conn_id}")
-def list_procedures(conn_id: int, database: str, ops: DBOperations = Depends(get_db_ops)):
-    # MySQL: SHOW PROCEDURE STATUS
-    # PostgreSQL: SELECT proname FROM pg_proc
+"""触发器管理 API"""
+from fastapi import APIRouter, Depends
+from ..dependencies import get_db_storage, get_db_ops
+
+router = APIRouter(prefix="/api/triggers", tags=["触发器管理"])
+
+@router.get("/{conn_id}")
+def list_triggers(conn_id: int, database: str = "", schema: str = "",
+                  storage=Depends(get_db_storage), ops=Depends(get_db_ops)):
+    """列出所有触发器"""
+    conn_data = _get_conn_data(conn_id, storage)
+    db_type = conn_data.get("db_type", "MySQL")
+    
+    if db_type == "MySQL":
+        sql = """
+            SELECT TRIGGER_NAME, EVENT_MANIPULATION, EVENT_OBJECT_TABLE,
+                   ACTION_TIMING, DEFINER, CREATED
+            FROM information_schema.TRIGGERS
+            WHERE TRIGGER_SCHEMA = %s
+            ORDER BY TRIGGER_NAME
+        """
+        # 执行并返回列表
+    else:
+        sql = """
+            SELECT tgname AS TRIGGER_NAME,
+                   pg_catalog.pg_get_triggerdef(t.oid) AS TRIGGER_BODY
+            FROM pg_catalog.pg_trigger t
+            JOIN pg_catalog.pg_class c ON t.tgrelid = c.oid
+            JOIN pg_catalog.pg_namespace n ON c.relnamespace = n.oid
+            WHERE n.nspname = 'public' AND NOT t.tgisinternal
+            ORDER BY tgname
+        """
     ...
 
-@router.post("/procedures/{conn_id}")
-def create_procedure(conn_id: int, database: str, body: dict, ops: DBOperations = Depends(get_db_ops)):
-    # DELIMITER // ... CREATE PROCEDURE ... // DELIMITER ;
+@router.get("/{conn_id}/{trigger_name}/ddl")
+def get_trigger_ddl(...):
+    """获取触发器定义"""
+    if db_type == "MySQL":
+        sql = f"SHOW CREATE TRIGGER `{trigger_name}`"
+    ...
+
+@router.post("/{conn_id}")
+def create_trigger(...):
+    """创建触发器"""
+    # 接收 SQL 定义，直接执行
+
+@router.delete("/{conn_id}/{trigger_name}")
+def drop_trigger(...):
+    """删除触发器"""
+    sql = f"DROP TRIGGER IF EXISTS `{trigger_name}`"
     ...
 ```
 
+**前端 (`frontend/src/views/TriggerManager.vue`):**
+- 与 ViewManager.vue / FunctionManager.vue 风格一致
+- 显示触发器列表（名称/事件/表/时机/定义者）
+- 查看 DDL 定义
+- 创建/删除触发器
+
 **测试用例:**
-- 列出数据库中所有存储过程
-- 列出所有函数
-- 创建存储过程
-- 修改存储过程
-- 删除存储过程
-- 执行存储过程
+- 列出所有触发器（MySQL/PostgreSQL）
+- 查看触发器 DDL
+- 创建触发器（BEFORE INSERT / AFTER UPDATE 等）
+- 删除触发器
+
+#### 4.2.2 事件管理（待开发）
+
+**后端 API:** 类似触发器，管理 MySQL Events
+
+**前端:** EventManager.vue
 
 ---
 
@@ -273,29 +320,19 @@ def create_procedure(conn_id: int, database: str, body: dict, ops: DBOperations 
 
 | 功能点 | 优先级 | 状态 | 技术方案 |
 |--------|--------|------|----------|
-| EXPLAIN 执行计划 | P1 | 待开发 | 执行 EXPLAIN SQL |
-| 慢查询日志 | P2 | 待开发 | 查询 slow_log |
-| 索引建议 | P2 | 待开发 | 分析查询模式 |
+| EXPLAIN 执行计划 | P1 | ✅ 完成 | 弹窗展示原始输出 |
+| 慢查询日志 | P3 | ❌ 待开发 | 需要后端收集 |
+| 索引建议 | P3 | ❌ 待开发 | 解析 EXPLAIN 输出 |
+| 执行计划图形化 | P2 | ❌ 待开发 | 树形/图形展示 |
 
 ### 5.2 开发细节
 
-#### 5.2.1 执行计划
+#### 5.2.1 执行计划图形化（待开发）
 
-```python
-# backend/routers/query.py
-@router.post("/explain")
-def explain_query(conn_id: int, sql: str, database: str, ops: DBOperations = Depends(get_db_ops)):
-    # MySQL: EXPLAIN [FORMAT=JSON] sql
-    # PostgreSQL: EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) sql
-    result = ops.execute(f"EXPLAIN {sql}")
-    return {"success": True, "data": result}
-```
-
-**测试用例:**
-- EXPLAIN SELECT 查询
-- EXPLAIN UPDATE 语句
-- EXPLAIN 带子查询
-- 查看 JSON 格式执行计划
+**前端增强:** SQLWorkbench.vue 中增强 EXPLAIN 结果展示
+- JSON 格式化展示 → 树形组件展示
+- 颜色标记：全表扫描(红)、索引扫描(黄)、走索引(绿)
+- 展示预计行数/耗时
 
 ---
 
@@ -305,28 +342,10 @@ def explain_query(conn_id: int, sql: str, database: str, ops: DBOperations = Dep
 
 | 功能点 | 优先级 | 状态 | 技术方案 |
 |--------|--------|------|----------|
-| 用户列表 | P2 | 待开发 | SELECT FROM mysql.user |
-| 角色管理 | P2 | 待开发 | CREATE ROLE (PG) |
-| 权限授予 | P2 | 待开发 | GRANT 语句 |
-| 权限回收 | P2 | 待开发 | REVOKE 语句 |
-| 数据库授权 | P2 | 待开发 | GRANT ON database |
-
-### 6.2 开发细节
-
-```python
-# backend/routers/permissions.py (新建)
-@router.get("/users/{conn_id}")
-def list_users(conn_id: int, ops: DBOperations = Depends(get_db_ops)):
-    # MySQL: SELECT user, host FROM mysql.user
-    # PostgreSQL: SELECT rolname FROM pg_roles
-    ...
-
-@router.post("/grant")
-def grant_permission(conn_id: int, user: str, privileges: list, database: str, ops: DBOperations = Depends(get_db_ops)):
-    sql = f"GRANT {','.join(privileges)} ON {database}.* TO '{user}'@'host'"
-    ops.execute(sql)
-    ...
-```
+| 用户列表 | P3 | ❌ 待开发 | 从 mysql.user / pg_roles 读取 |
+| 角色管理 | P3 | ❌ 待开发 | MySQL SHOW GRANTS |
+| 权限授予/回收 | P3 | ❌ 待开发 | GRANT / REVOKE |
+| 数据库授权 | P3 | ❌ 待开发 | GRANT ON db.* |
 
 ---
 
@@ -336,35 +355,14 @@ def grant_permission(conn_id: int, user: str, privileges: list, database: str, o
 
 | 功能点 | 优先级 | 状态 | 技术方案 |
 |--------|--------|------|----------|
-| 导出表结构(DDL) | P1 | 待开发 | 生成 CREATE TABLE |
-| 导入 SQL 脚本 | P1 | 待开发 | 解析 SQL 文件 |
-| 批量导出 | P2 | 待开发 | 循环导出多表 |
-| 批量导入 | P2 | 待开发 | 分割 SQL 批量执行 |
-| 导入导出模板 | P2 | 待开发 | 预设模板 |
-
-### 7.2 开发细节
-
-#### 7.2.1 导出 DDL
-
-```python
-# backend/routers/export.py
-@router.post("/export/ddl")
-def export_ddl(conn_id: int, database: str, tables: list[str], ops: DBOperations = Depends(get_db_ops)):
-    ddl_list = []
-    for table in tables:
-        cols = ops.get_table_columns(table)
-        ddl = f"CREATE TABLE {table} (\n"
-        # 生成字段定义
-        ...
-        ddl_list.append(ddl)
-    return {"success": True, "data": ddl_list}
-```
-
-**测试用例:**
-- 导出单表 DDL
-- 导出多表 DDL
-- 包含索引和外键
-- 导出 PostgreSQL 风格
+| 导出表结构 | P1 | ✅ 完成 | Excel/PDF/HTML/MD |
+| 导出数据 | P1 | ✅ 完成 | CSV/Excel |
+| ER 图导出 | P1 | ✅ 完成 | HTML(Mermaid)/PDF/MD/Excel |
+| 导出 Navicat 配置 | P1 | ✅ 完成 | NCX 1.5 格式 |
+| 导入 CSV | P1 | ✅ 完成 | 预览+映射+三种模式 |
+| 导入 SQL 脚本 | P1 | ✅ 完成 | 上传即执行 |
+| 批量导入/导出 | P2 | ❌ 待开发 | 多表选择批量操作 |
+| 导入导出模板 | P2 | ❌ 待开发 | 保存配置模板 |
 
 ---
 
@@ -374,27 +372,53 @@ def export_ddl(conn_id: int, database: str, tables: list[str], ops: DBOperations
 
 | 功能点 | 优先级 | 状态 | 技术方案 |
 |--------|--------|------|----------|
-| 定时自动备份 | P2 | 待开发 | 定时任务 + mysqldump |
-| 备份计划管理 | P2 | 待开发 | 计划列表 + CRUD |
-| 备份文件预览 | P2 | 待开发 | 读取备份文件内容 |
-| 增量备份 | P3 | 待开发 | binlog 备份 |
+| 手动备份 | P1 | ✅ 完成 | 纯 Python + CLI 回退 |
+| 手动恢复 | P1 | ✅ 完成 | 含进度回调 |
+| 备份文件管理 | P1 | ✅ 完成 | 列表/删除 |
+| 备份选项(结构/数据/视图/函数/触发器/事件) | P2 | ✅ 完成 | 可选项 |
+| 定时自动备份 | P2 | ❌ 待开发 | APScheduler + 后端服务 |
+| 备份计划管理 | P2 | ❌ 待开发 | 创建/编辑/启用/禁用计划 |
+| 备份文件预览 | P2 | ❌ 待开发 | 查看备份文件内容 |
 
 ### 8.2 开发细节
 
-```python
-# backend/routers/backup.py 扩展
-@router.post("/schedule")
-def create_backup_schedule(req: BackupScheduleRequest, storage: DBStorage = Depends(get_db_storage)):
-    # 存储计划到 SQLite
-    schedule_id = storage.save_backup_schedule(req.dict())
-    # 启动定时任务
-    scheduler.add_job(backup_task, 'cron', schedule_id, ...)
-    return {"success": True}
+#### 8.2.1 备份计划管理（待开发）
 
-def backup_task(schedule_id: int):
-    # 执行备份逻辑
-    ...
+**后端:**
+
+```python
+# backend/routers/backup_plan.py (新建)
+
+# 存储计划到 SQLite (connections.db 中建 backup_plans 表)
+# 字段: id, conn_id, database, options, cron_expr, enabled, created_at
+
+# 启动定时任务 (APScheduler)
+from apscheduler.schedulers.background import BackgroundScheduler
+scheduler = BackgroundScheduler()
+
+@scheduler.scheduled_job('cron', id='backup_check')
+def check_backup_plans():
+    """每分钟检查是否有需要执行的备份计划"""
+    plans = load_due_plans()
+    for plan in plans:
+        execute_plan(plan)
+
+# API 端点
+@router.post("/plans")    # 创建计划
+@router.get("/plans")     # 列出计划
+@router.put("/plans/{id}") # 更新计划
+@router.delete("/plans/{id}") # 删除计划
+@router.post("/plans/{id}/toggle") # 启用/禁用
 ```
+
+**前端:** 在 BackupDialog 中增加"备份计划"标签页
+
+**测试用例:**
+- 创建每小时的备份计划
+- 列出所有计划
+- 启用/禁用计划
+- 删除计划
+- 计划到期执行备份并记录
 
 ---
 
@@ -404,41 +428,15 @@ def backup_task(schedule_id: int):
 
 | 功能点 | 优先级 | 状态 | 技术方案 |
 |--------|--------|------|----------|
-| 数据对比 | P1 | 待开发 | 比对源和目标差异 |
-| 选择性同步 | P1 | 待开发 | 选择表/数据同步 |
-| 同步预览 | P1 | 待开发 | 生成 SQL 不执行 |
-
-### 9.2 开发细节
-
-#### 9.2.1 数据对比
-
-```python
-# backend/routers/sync.py 扩展
-@router.post("/compare")
-def compare_databases(source: dict, target: dict, ops: DBOperations = Depends(get_db_ops)):
-    # 比对表结构
-    source_tables = ops.get_tables()
-    target_tables = ops.get_tables()
-    
-    diff = {
-        'only_source': list(set(source_tables) - set(target_tables)),
-        'only_target': list(set(target_tables) - set(source_tables)),
-        'different': [],
-    }
-    
-    # 比对表数据
-    for table in set(source_tables) & set(target_tables):
-        source_count = ops.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-        target_count = ops.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-        if source_count != target_count:
-            diff['different'].append({
-                'table': table,
-                'source_rows': source_count,
-                'target_rows': target_count,
-            })
-    
-    return {"success": True, "data": diff}
-```
+| 跨库同步 | P1 | ✅ 完成 | 源→目标，支持不同数据库 |
+| 结构同步 | P1 | ✅ 完成 | CREATE/ALTER TABLE |
+| 数据同步 | P1 | ✅ 完成 | 批量写入 + 冲突策略 |
+| 同步进度 | P1 | ✅ 完成 | 实时进度 + 日志 |
+| 同步历史 | P1 | ✅ 完成 | 存储到 SQLite |
+| 数据对比 | P2 | ✅ 完成 | 表/行级差异 |
+| 选择性同步 | P1 | ✅ 完成 | 选表/结构/数据/冲突策略 |
+| 同步预览 | P2 | ✅ 完成 | 对比结果展示 |
+| 定时同步 | P2 | ❌ 待开发 | 类似备份计划 |
 
 ---
 
@@ -448,39 +446,74 @@ def compare_databases(source: dict, target: dict, ops: DBOperations = Depends(ge
 
 | 功能点 | 优先级 | 状态 | 技术方案 |
 |--------|--------|------|----------|
-| 收藏夹 | P1 | 待开发 | 收藏连接/查询 |
-| 最近使用记录 | P1 | 待开发 | 历史记录列表 |
-| 快捷键完善 | P1 | 部分 | 补充更多快捷键 |
-| 右键菜单 | P1 | 部分 | 完善上下文菜单 |
-| 状态栏信息 | P1 | 部分 | 显示更多信息 |
-| 加载状态优化 | P0 | 待优化 | 骨架屏/进度条 |
+| 7 种主题 | P0 | ✅ 完成 | CSS 变量 + data-theme |
+| 菜单栏 | P1 | ✅ 完成 | 5 个主菜单 |
+| 侧栏折叠 | P1 | ✅ 完成 | 折叠/展开 |
+| 侧栏多连接 | P1 | ✅ 完成 | 树形展示 |
+| 侧栏搜索表 | P1 | ✅ 完成 | 每个数据库独立搜索框 |
+| 右键菜单 | P1 | ✅ 完成 | 连接树 + 标签页 |
+| 快捷键 | P1 | ✅ 完成 | Ctrl+Enter/F5/S/W/Shift+F |
+| 全局工具栏 | P0 | ❌ 待开发 | 图标按钮工具栏 |
+| 收藏夹/快捷方式 | P1 | ❌ 待开发 | 收藏连接和表 |
+| 最近使用记录 | P1 | ❌ 待开发 | localStorage 存储 |
+| 状态栏丰富 | P1 | ❌ 待开发 | 显示连接状态/耗时/行数 |
+| 拖放操作 | P2 | ❌ 待开发 | 表拖入编辑器生成 SQL |
+| 自定义快捷键 | P2 | ❌ 待开发 | 用户可配置 |
 
 ### 10.2 开发细节
 
-#### 10.2.1 快捷键
+#### 10.2.1 快捷键 (已有基础)
 
-| 快捷键 | 功能 |
-|--------|------|
-| F5 / Ctrl+Enter | 执行 SQL |
-| Ctrl+Shift+F | 格式化 SQL |
-| Ctrl+S | 保存当前查询 |
-| Ctrl+N | 新建查询标签 |
-| Ctrl+W | 关闭当前标签 |
-| Ctrl+Tab | 切换标签 |
-| Ctrl+F | 查找 |
-| Ctrl+H | 替换 |
+当前支持的快捷键：
+- `Ctrl+Enter` / `F5` — 执行 SQL
+- `Ctrl+Shift+F` — 格式化 SQL
+- `Ctrl+S` — 保存查询
+- `Ctrl+N` — 新建标签
+- `Ctrl+W` — 关闭标签
+- `Ctrl+F` — 查找
 
-```typescript
-// frontend/src/components/SqlEditor.vue 扩展
-keymap.of([
-  { key: 'Mod-Enter', run: () => { emit('execute'); return true } },
-  { key: 'F5', run: () => { emit('execute'); return true } },
-  { key: 'Mod-Shift-f', run: () => { emit('format'); return true } },
-  // 新增
-  { key: 'Mod-s', run: () => { emit('save'); return true } },
-  { key: 'Mod-n', run: () => { emit('newTab'); return true } },
-])
+#### 10.2.2 全局工具栏（待开发）
+
+在 AppLayout.vue 菜单栏和主区域之间添加工具栏：
+
+```vue
+<div class="toolbar">
+  <n-button-group size="tiny">
+    <n-tooltip trigger="hover"><template #trigger>
+      <n-button quaternary @click="newQuery">📝 查询</n-button>
+    </template>新建查询</n-tooltip>
+    
+    <n-tooltip trigger="hover"><template #trigger>
+      <n-button quaternary @click="showTableDesigner">📐 设计表</n-button>
+    </template>表设计器</n-tooltip>
+    
+    <n-tooltip trigger="hover"><template #trigger>
+      <n-button quaternary @click="showExport">📤 导出</n-button>
+    </template>导出数据</n-tooltip>
+    
+    <n-tooltip trigger="hover"><template #trigger>
+      <n-button quaternary @click="showImport">📥 导入</n-button>
+    </template>导入数据</n-tooltip>
+    
+    <n-tooltip trigger="hover"><template #trigger>
+      <n-button quaternary @click="showBackup">💾 备份</n-button>
+    </template>备份/恢复</n-tooltip>
+    
+    <n-tooltip trigger="hover"><template #trigger>
+      <n-button quaternary @click="showSync">🔄 同步</n-button>
+    </template>数据同步</n-tooltip>
+  </n-button-group>
+</div>
 ```
+
+#### 10.2.3 状态栏丰富（待开发）
+
+在 AppLayout.vue 底部显示：
+- 连接状态（已连接/未连接 + 图标）
+- 当前数据库名
+- 服务器版本（如果支持）
+- 查询耗时（已做）
+- 记录行数（已做）
 
 ---
 
@@ -490,63 +523,37 @@ keymap.of([
 
 | 功能点 | 优先级 | 状态 | 技术方案 |
 |--------|--------|------|----------|
-| ER 图/关系图 | P2 | 待开发 | 图形化展示表关系 |
-| 连接池管理 | P2 | 待开发 | 显示连接状态 |
-| 性能监控 | P2 | 待开发 | 查询状态/缓存命中率 |
-| SQL 任务计划 | P3 | 待开发 | 定时执行 SQL |
-
-### 11.2 开发细节
-
-#### 11.2.1 ER 图
-
-```python
-# backend/routers/er_diagram.py (新建)
-@router.get("/er-diagram/{conn_id}")
-def get_er_diagram(conn_id: int, database: str, ops: DBOperations = Depends(get_db_ops)):
-    # 获取所有表的外键关系
-    tables = ops.get_tables()
-    relations = []
-    for table in tables:
-        foreign_keys = ops.get_foreign_keys(table)
-        for fk in foreign_keys:
-            relations.append({
-                'from': table,
-                'from_col': fk['column'],
-                'to': fk['ref_table'],
-                'to_col': fk['ref_column'],
-            })
-    return {"success": True, "data": {"tables": tables, "relations": relations}}
-```
+| ER 图导出 | P2 | ✅ 完成 | Mermaid.js → HTML/PDF |
+| 连接池管理 | P2 | ✅ 部分 | 5min TTL 连接缓存 |
+| 交互式 ER 图查看器 | P3 | ❌ 待开发 | 前端 d3.js / vis.js |
+| 用户权限管理 | P3 | ❌ 待开发 | GRANT/REVOKE |
+| 数据库性能监控 | P3 | ❌ 待开发 | SHOW STATUS / pg_stat |
+| SQL 任务计划 | P3 | ❌ 待开发 | APScheduler |
+| 数据生成器 | P3 | ❌ 待开发 | 模拟数据填充 |
+| 数据透视图 | P3 | ❌ 待开发 | 图表展示 |
 
 ---
 
 ## 测试标准
 
 ### 通用测试
-
-1. **功能测试** - 每个功能点必须有测试用例
-2. **边界测试** - 空值、特殊字符、超长内容
-3. **错误处理** - 网络断开、权限不足、SQL 错误
-4. **UI 响应** - 加载状态、动画流畅
+- [ ] 功能测试：每个 API 端点的成功/失败场景
+- [ ] 边界测试：空数据、超大数据量、特殊字符
+- [ ] 异常测试：网络中断、服务端错误、超时
 
 ### 测试用例模板
+```python
+# pytest 测试模板
+def test_api_success():
+    """正常场景"""
+    response = client.get("/api/...")
+    assert response.status_code == 200
+    assert response.json()["success"] == True
 
-```typescript
-describe('SQL格式化', () => {
-  test('格式化简单SELECT', () => {
-    const input = 'select id,name from users where id=1'
-    const output = format(input, { language: 'mysql' })
-    expect(output).toContain('SELECT')
-  })
-  
-  test('格式化复杂JOIN', () => {
-    // 多表关联
-  })
-  
-  test('快捷键触发', () => {
-    // Ctrl+Shift+F
-  })
-})
+def test_api_failure():
+    """异常场景"""
+    response = client.get("/api/...")
+    assert response.status_code in (400, 404, 500)
 ```
 
 ---
@@ -554,64 +561,64 @@ describe('SQL格式化', () => {
 ## 代码规范
 
 ### 前端 (Vue 3 + TypeScript)
-
-- 使用 Composition API: `<script setup lang="ts">`
-- 组件文件: `frontend/src/components/`
-- 页面文件: `frontend/src/views/`
-- API 方法: `frontend/src/api/index.ts`
-- 状态管理: `frontend/src/stores/app.ts`
-- UI 库: 只使用 Naive UI
+- 使用 `script setup lang="ts"` 组合式 API
+- 组件名 PascalCase，文件名 kebab-case
+- Props 使用 `withDefaults(defineProps<...>())` 模式
+- 使用 `computed` 代替方法（除非有参数）
+- 模板中使用 `n-` 前缀的 Naive UI 组件
 
 ### 后端 (Python FastAPI)
-
-- 路由文件: `backend/routers/`
-- 业务逻辑: `backend/core/`
-- 数据模型: `backend/models/`
-- Schema: `backend/schemas.py`
-- 日志: 使用 `logging` 模块
+- 路由函数使用类型注解
+- 使用 Pydantic 模型做请求校验
+- 所有端点返回 `{"success": bool, "data": ..., "message": ...}` 格式
+- 异常拦截在路由层，不向上抛
 
 ---
 
 ## 开发流程
 
-1. **需求确认** - 明确功能细节
-2. **技术方案** - 确定实现方式
-3. **API 设计** - 后端接口定义
-4. **前端开发** - 组件实现
-5. **联调测试** - 前后端对接
-6. **自测验证** - 功能测试
-7. **代码提交** - Git 提交规范
+1. 确认当前分支最新：`git pull`
+2. 创建功能分支：`git checkout -b feat/模块名`
+3. 实现功能（先后端 API，再前端 UI）
+4. 自测功能
+5. 提交：`git commit -m "feat: 功能描述"`
+6. 合并到主分支
 
 ---
 
 ## 文件命名规范
 
-| 类型 | 命名规范 | 示例 |
-|------|----------|------|
-| 组件 | 大驼峰 | `SqlEditor.vue` |
-| 页面 | 大驼峰 | `SQLWorkbench.vue` |
-| API 方法 | 驼峰 | `listConnections` |
-| 路由 | 小写下划线 | `/api/connections` |
-| 后端文件 | 小写下划线 | `db_operations.py` |
+| 类型 | 规范 | 示例 |
+|------|------|------|
+| 后端路由 | 小写+下划线 | `routers/tables.py` |
+| 后端核心 | 小写+下划线 | `core/backup_manager.py` |
+| 前端视图 | PascalCase.vue | `views/TableBrowser.vue` |
+| 前端组件 | PascalCase.vue | `components/SqlEditor.vue` |
+| 前端对话框 | PascalCase.vue | `components/dialogs/SyncDialog.vue` |
+| 前端 API | 小写+驼峰 | `api/index.ts` |
+| 前端 Store | 小写 | `stores/app.ts` |
 
 ---
 
 ## 提交规范
 
 ```
-feat: 新增SQL格式化功能
-- 安装 sql-formatter 依赖
-- 添加格式化按钮和快捷键
-- 支持 MySQL/PostgreSQL 方言
+<type>: <简短描述>
 
-fix: 修复单元格编辑问题
-- 编辑空值时报错
-- 批量编辑不生效
+<详细说明（可选）>
 
-Co-Authored-By: Claude <noreply@anthropic.com>
+Co-Authored-By: AtomCode (deepseek-v4-flash) <noreply@atomgit.com>
 ```
+
+| 类型 | 说明 |
+|------|------|
+| feat | 新功能 |
+| fix | 修复 Bug |
+| refactor | 重构 |
+| docs | 文档更新 |
+| style | 样式/格式化 |
+| perf | 性能优化 |
 
 ---
 
-*文档版本: 1.0*
-*最后更新: 2026-06-13*
+*生成时间: 2026-06-13 (v2 - 基于实际代码审查)*

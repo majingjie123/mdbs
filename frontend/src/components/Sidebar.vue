@@ -271,6 +271,18 @@ async function loadDbObjects(connId: number, dbName: string, schemaName: string 
     children: [],
   })
 
+  // 触发器文件夹
+  const trFolderKey = `${nodeKey}/triggers`
+  children.push({
+    label: '📂 触发器',
+    key: trFolderKey,
+    isLeaf: false,
+    nodeType: 'folder',
+    connId,
+    dbName,
+    children: [],
+  })
+
   return children
 }
 
@@ -337,6 +349,31 @@ async function loadFuncsIntoFolder(folderNode: TreeNode) {
   }))
 }
 
+// ── 加载触发器列表 ──
+async function loadTriggersIntoFolder(folderNode: TreeNode) {
+  const { connId, dbName, schemaName, key } = folderNode
+  if (!connId) return
+  try {
+    const res: any = await api.listTriggers(connId, dbName, schemaName)
+    if (!res?.success) {
+      folderNode.children = []
+      return
+    }
+    folderNode.children = (res.data || []).map((t: any) => ({
+      label: `🔔 ${t.TRIGGER_NAME || t.Trigger || t.trigger_name}`,
+      key: `${key}/trig-${t.TRIGGER_NAME || t.Trigger || t.trigger_name}`,
+      isLeaf: true,
+      nodeType: 'trigger',
+      connId,
+      dbName,
+      schemaName,
+      rawData: t,
+    }))
+  } catch {
+    folderNode.children = [{ label: '加载失败', key: `${key}/err`, isLeaf: true }]
+  }
+}
+
 // ── 加载保存的查询列表 ──
 async function loadQueriesIntoFolder(folderNode: TreeNode) {
   const { connId, dbName, key } = folderNode
@@ -394,6 +431,8 @@ async function onExpand(node: TreeNode) {
       await loadViewsIntoFolder(node)
     } else if (parts.some((p) => p === 'funcs')) {
       await loadFuncsIntoFolder(node)
+    } else if (parts.some((p) => p === 'triggers')) {
+      await loadTriggersIntoFolder(node)
     } else if (parts.some((p) => p === 'queries')) {
       await loadQueriesIntoFolder(node)
     } else {
@@ -483,6 +522,17 @@ function onDblClick(node: TreeNode) {
       dbName: node.dbName || '',
       schemaName: node.schemaName || '',
       initialSql: '',
+    })
+  }
+
+  // 触发器 → 打开触发器管理
+  if (type === 'trigger') {
+    const triggerName = node.rawData?.TRIGGER_NAME || node.rawData?.Trigger || node.rawData?.trigger_name
+    store.openTab('trigger-manager', `🔔 ${triggerName}`, {
+      connId: node.connId,
+      triggerName,
+      dbName: node.dbName || '',
+      schemaName: node.schemaName || '',
     })
   }
 }
@@ -692,6 +742,19 @@ function handleCtxAction(action: string | undefined) {
       message.success(`已复制: ${node.label}`)
       break
 
+    // ── 触发器 ──
+    case 'manage-trigger': {
+      const triggerName = node.rawData?.TRIGGER_NAME || node.rawData?.Trigger || node.rawData?.trigger_name
+      store.openTab('trigger-manager', `🔔 ${triggerName}`, {
+        connId, triggerName, dbName, schemaName,
+      })
+      break
+    }
+    case 'copy-trigger-name':
+      navigator.clipboard.writeText(node.label.replace('🔔 ', ''))
+      message.success(`已复制: ${node.label}`)
+      break
+
     // ── 保存的查询 ──
     case 'open-saved-query': {
       store.openTab('sql-workbench', node.label, {
@@ -804,6 +867,14 @@ function getMenuItems(nodeType: string = '') {
         { label: '查看定义 (DDL)', action: 'view-func-ddl' },
         { separator: true },
         { label: '复制名称', action: 'copy-func-name' },
+        { separator: true },
+        { label: '刷新', action: 'refresh' },
+      ]
+    case 'trigger':
+      return [
+        { label: '管理触发器', action: 'manage-trigger' },
+        { separator: true },
+        { label: '复制名称', action: 'copy-trigger-name' },
         { separator: true },
         { label: '刷新', action: 'refresh' },
       ]

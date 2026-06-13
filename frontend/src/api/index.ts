@@ -119,6 +119,16 @@ export const api = {
   getFunctionMetadata: (connId: number, funcName: string, database?: string, schema?: string) =>
     http.get(`/tables/${connId}/functions/${encodeURIComponent(funcName)}/metadata`, { params: { database, schema } }) as Promise<ApiResponse<any>>,
 
+  // ── 触发器管理 ──
+  listTriggers: (connId: number, database?: string, schema?: string) =>
+    http.get(`/triggers/${connId}`, { params: { database, schema } }) as Promise<ApiResponse<any[]>>,
+  getTriggerDDL: (connId: number, triggerName: string, database?: string, schema?: string) =>
+    http.get(`/triggers/${connId}/${encodeURIComponent(triggerName)}/ddl`, { params: { database, schema } }) as Promise<ApiResponse<string>>,
+  createTrigger: (connId: number, params: { trigger_name: string; trigger_sql: string; database?: string; schema?: string }) =>
+    http.post(`/triggers/${connId}`, params) as Promise<ApiResponse>,
+  dropTrigger: (connId: number, triggerName: string, database?: string, schema?: string) =>
+    http.delete(`/triggers/${connId}/${encodeURIComponent(triggerName)}`, { params: { database, schema } }) as Promise<ApiResponse>,
+
   // 表结构修改
   createTable: (connId: number, params: any) =>
     http.post(`/tables/${connId}/create`, params) as Promise<ApiResponse>,
