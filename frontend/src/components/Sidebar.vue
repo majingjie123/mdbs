@@ -242,10 +242,58 @@ function buildFavTreeNodes(): TreeNode[] {
   }))
 }
 
+// ── 最近使用记录 ──
+const RECENT_KEY = 'mdbs_recent'
+const MAX_RECENT = 10
+const recentItems = ref<FavoriteItem[]>([])
+
+function loadRecent() {
+  try {
+    const raw = localStorage.getItem(RECENT_KEY)
+    if (raw) recentItems.value = JSON.parse(raw)
+  } catch { /* ignore */ }
+}
+function saveRecent() {
+  try { localStorage.setItem(RECENT_KEY, JSON.stringify(recentItems.value)) } catch { /* ignore */ }
+}
+
+function trackRecent(node: TreeNode) {
+  const label = node.label.replace(/^[🔔📂📄📐📦⭐🕐]\s*/, '')
+  // 不记录文件夹
+  if (node.nodeType === 'folder' || node.nodeType === 'fav-folder' || node.nodeType === 'recent-folder' || node.nodeType?.startsWith('fav-') || node.nodeType?.startsWith('recent-') || node.nodeType === 'connection' || node.nodeType === 'database' || node.nodeType === 'schema') return
+  recentItems.value = recentItems.value.filter(r => r.id !== node.key)
+  recentItems.value.unshift({
+    id: node.key,
+    label,
+    nodeType: node.nodeType || 'table',
+    connId: node.connId || 0,
+    dbName: node.dbName,
+    schemaName: node.schemaName,
+    tableName: node.rawData?.TABLE_NAME || node.rawData?.name || node.rawData?.TRIGGER_NAME,
+    timestamp: Date.now(),
+  })
+  if (recentItems.value.length > MAX_RECENT) recentItems.value = recentItems.value.slice(0, MAX_RECENT)
+  saveRecent()
+}
+
+function buildRecentTreeNodes(): TreeNode[] {
+  return recentItems.value.map(r => ({
+    label: `🕐 ${r.label}`,
+    key: `recent-${r.id}`,
+    isLeaf: true,
+    nodeType: `recent-${r.nodeType}`,
+    connId: r.connId,
+    dbName: r.dbName,
+    schemaName: r.schemaName,
+    rawData: { TABLE_NAME: r.tableName, TRIGGER_NAME: r.label },
+  }))
+}
+
 async function refreshConnections() {
   await store.loadConnections()
   // 收藏夹在最前面
   const favNodes = buildFavTreeNodes()
+  const recentNodes = buildRecentTreeNodes()
   treeData.value = [
     {
       label: `⭐ 收藏夹 (${favNodes.length})`,
@@ -253,6 +301,13 @@ async function refreshConnections() {
       isLeaf: false,
       nodeType: 'fav-folder',
       children: favNodes,
+    },
+    {
+      label: `🕐 最近 (${recentNodes.length})`,
+      key: 'recent-root',
+      isLeaf: false,
+      nodeType: 'recent-folder',
+      children: recentNodes,
     },
     ...store.connections.map((c: any) => ({
       label: c.name,
@@ -562,6 +617,7 @@ function onDblClick(node: TreeNode) {
 
   // 表/视图 → 打开 SQLWorkbench
   if (type === 'table' || type === 'view') {
+    trackRecent(node)
     const name = node.rawData?.name || node.label.split('  ')[0]
     let initialSql = ''
     const connData = store.connections.find((c) => c.id === node.connId)
@@ -582,6 +638,7 @@ function onDblClick(node: TreeNode) {
 
   // 保存的查询 → 打开 SQLWorkbench
   if (type === 'saved-query') {
+    trackRecent(node)
     store.openTab('sql-workbench', node.label, {
       connId: node.connId,
       dbName: node.dbName || '',
@@ -594,6 +651,7 @@ function onDblClick(node: TreeNode) {
 
   // 函数 → 查看 DDL（待后续实现，先开空工作台）
   if (type === 'function') {
+    trackRecent(node)
     store.openTab('sql-workbench', node.label, {
       connId: node.connId,
       dbName: node.dbName || '',
@@ -604,6 +662,7 @@ function onDblClick(node: TreeNode) {
 
   // 触发器 → 打开触发器管理
   if (type === 'trigger') {
+    trackRecent(node)
     const triggerName = node.rawData?.TRIGGER_NAME || node.rawData?.Trigger || node.rawData?.trigger_name
     store.openTab('trigger-manager', `🔔 ${triggerName}`, {
       connId: node.connId,
@@ -628,6 +687,28 @@ function onDblClick(node: TreeNode) {
         break
       case 'trigger':
         store.openTab('trigger-manager', node.label, { connId: node.connId, dbName: node.dbName, triggerName: node.rawData?.TRIGGER_NAME || node.label.replace('⭐ ', '') })
+        break
+      default:
+        store.openTab('sql-workbench', node.label, { connId: node.connId, dbName: node.dbName })
+    }
+  }
+
+  // 最近使用项 → 按类型打开
+  if (type?.startsWith('recent-')) {
+    const innerType = type.replace('recent-', '')
+    trackRecent(node) // 双击时刷新时间戳
+    switch (innerType) {
+      case 'table':
+        store.openTab('table-browser', node.label, { connId: node.connId, dbName: node.dbName, tableName: node.rawData?.TABLE_NAME })
+        break
+      case 'view':
+        store.openTab('view-manager', node.label, { connId: node.connId, dbName: node.dbName, viewName: node.rawData?.TABLE_NAME })
+        break
+      case 'function':
+        store.openTab('function-manager', node.label, { connId: node.connId, dbName: node.dbName, funcName: node.label.replace('🕐 ', '') })
+        break
+      case 'trigger':
+        store.openTab('trigger-manager', node.label, { connId: node.connId, dbName: node.dbName, triggerName: node.rawData?.TRIGGER_NAME || node.label.replace('🕐 ', '') })
         break
       default:
         store.openTab('sql-workbench', node.label, { connId: node.connId, dbName: node.dbName })
@@ -961,6 +1042,53 @@ function handleCtxAction(action: string | undefined) {
       break
     }
 
+    // ── 最近使用 ──
+    case 'clear-recent': {
+      dialog.warning({
+        title: '清空最近使用记录',
+        content: '确定要清空所有最近使用记录吗？',
+        positiveText: '清空',
+        negativeText: '取消',
+        onPositiveClick: () => {
+          recentItems.value = []
+          saveRecent()
+          refreshConnections()
+          message.success('最近使用记录已清空')
+        },
+      })
+      closeCtxMenu()
+      break
+    }
+    case 'remove-recent': {
+      const originalKey = node.key.replace('recent-', '')
+      recentItems.value = recentItems.value.filter(r => r.id !== originalKey)
+      saveRecent()
+      refreshConnections()
+      closeCtxMenu()
+      break
+    }
+    case 'open-recent': {
+      const type = node.nodeType?.replace('recent-', '') || ''
+      switch (type) {
+        case 'table':
+          store.openTab('table-browser', node.label, { connId, dbName, tableName: node.rawData?.TABLE_NAME })
+          break
+        case 'view':
+          store.openTab('view-manager', node.label, { connId, dbName, viewName: node.rawData?.TABLE_NAME })
+          break
+        case 'function':
+          store.openTab('function-manager', node.label, { connId, dbName, funcName: node.label.replace('🕐 ', '') })
+          break
+        case 'trigger':
+          store.openTab('trigger-manager', node.label, { connId, dbName, triggerName: node.rawData?.TRIGGER_NAME || node.label.replace('🕐 ', '') })
+          break
+        default:
+          store.openTab('sql-workbench', node.label, { connId, dbName })
+      }
+      closeCtxMenu()
+      break
+    }
+
     default:
   }
 }
@@ -1059,12 +1187,23 @@ function getMenuItems(nodeType: string = '') {
       return [
         { label: '清空收藏夹', action: 'clear-fav' },
       ]
+    case 'recent-folder':
+      return [
+        { label: '清空最近使用记录', action: 'clear-recent' },
+      ]
     default:
       if (nodeType.startsWith('fav-')) {
         return [
           { label: '打开', action: 'open-fav' },
           { separator: true },
           { label: '⭐ 从收藏夹移除', action: 'remove-fav' },
+        ]
+      }
+      if (nodeType.startsWith('recent-')) {
+        return [
+          { label: '打开', action: 'open-recent' },
+          { separator: true },
+          { label: '🕐 从最近记录移除', action: 'remove-recent' },
         ]
       }
       return [
@@ -1079,7 +1218,7 @@ function onDocClick() { closeCtxMenu() }
 // connections 变更时自动刷新树（新增/编辑/删除连接后即时可见）
 watch(() => store.connections, () => { refreshConnections() }, { deep: true })
 
-onMounted(() => { document.addEventListener('click', onDocClick); loadFavorites(); refreshConnections() })
+onMounted(() => { document.addEventListener('click', onDocClick); loadFavorites(); loadRecent(); refreshConnections() })
 onUnmounted(() => document.removeEventListener('click', onDocClick))
 </script>
 
