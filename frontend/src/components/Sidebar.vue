@@ -619,6 +619,14 @@ async function onExpand(node: TreeNode) {
         connId: node.connId,
         children: [],
       })
+      mgmtItems.push({
+        label: '🔄 同步计划',
+        key: `${node.key}/sync-plans`,
+        isLeaf: false,
+        nodeType: 'folder',
+        connId: node.connId,
+        children: [],
+      })
       node.children = [...dbs, ...mgmtItems]
     } else if (parts.some((p) => p.startsWith('db-')) && parts.length === 2) {
       // 数据库 → 检查是否是 PostgreSQL 需要加载 schema
@@ -650,6 +658,9 @@ async function onExpand(node: TreeNode) {
       onDblClick(node)
     } else if (parts.some((p) => p === 'backup-plans')) {
       // 备份计划文件夹无子项, 直接打开
+      onDblClick(node)
+    } else if (parts.some((p) => p === 'sync-plans')) {
+      // 同步计划文件夹无子项, 直接打开
       onDblClick(node)
     } else if (parts.some((p) => p === 'queries')) {
       await loadQueriesIntoFolder(node)
@@ -786,6 +797,13 @@ function onDblClick(node: TreeNode) {
   // 备份计划文件夹 → 打开备份计划管理
   if (type === 'folder' && node.key?.includes('/backup-plans')) {
     store.openTab('backup-plan-manager', '📦 备份计划', {
+      connId: node.connId,
+    })
+  }
+
+  // 同步计划文件夹 → 打开同步计划管理
+  if (type === 'folder' && node.key?.includes('/sync-plans')) {
+    store.openTab('sync-plan-manager', '🔄 同步计划', {
       connId: node.connId,
     })
   }

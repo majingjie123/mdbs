@@ -262,7 +262,7 @@ export const api = {
     http.get(`/backup/${connId}/backups`) as Promise<ApiResponse<any[]>>,
   backupDelete: (filename: string) =>
     http.delete(`/backup/backups/${encodeURIComponent(filename)}`) as Promise<ApiResponse>,
-  backupPreview: (filename: string) =>
+  syncPlanList:(connId)=>http.get("/sync-plans/plans",{params:{conn_id:connId}}),syncPlanGet:(planId)=>http.get("/sync-plans/plans/"+planId),syncPlanCreate:(data)=>http.post("/sync-plans/plans",data),syncPlanUpdate:(planId,data)=>http.put("/sync-plans/plans/"+planId,data),syncPlanDelete:(planId)=>http.delete("/sync-plans/plans/"+planId),syncPlanToggle:(planId,enable)=>http.post("/sync-plans/plans/"+planId+"/toggle",{enable}),syncPlanRunNow:(planId)=>http.post("/sync-plans/plans/"+planId+"/run-now"),backupPreview: (filename: string) =>
     http.get(`/backup/preview/${encodeURIComponent(filename)}`) as Promise<ApiResponse<any>>,
 
   // ── 导入 ───────────────────────────────────────────

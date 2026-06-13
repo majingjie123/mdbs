@@ -161,8 +161,30 @@ class DBStorage:
 
             # 10. 创建备份计划表
             cursor.execute('''
-                CREATE TABLE IF NOT EXISTS backup_plans (
+                CREATE TABLE IF NOT EXISTS sync_plans (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    source_conn_id INTEGER NOT NULL,
+                    target_conn_id INTEGER NOT NULL,
+                    name TEXT NOT NULL,
+                    source_db TEXT NOT NULL DEFAULT '',
+                    target_db TEXT NOT NULL DEFAULT '',
+                    tables TEXT DEFAULT '[]',
+                    sync_structure INTEGER DEFAULT 1,
+                    sync_data INTEGER DEFAULT 1,
+                    drop_target INTEGER DEFAULT 0,
+                    conflict_strategy TEXT DEFAULT 'overwrite',
+                    schedule_type TEXT NOT NULL DEFAULT 'daily',
+                    schedule_value TEXT NOT NULL DEFAULT '02:00',
+                    enabled INTEGER DEFAULT 1,
+                    last_run TEXT,
+                    next_run TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+            ''')
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS backup_plans (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
                     conn_id INTEGER NOT NULL,
                     name TEXT NOT NULL,
                     database TEXT NOT NULL,
@@ -639,4 +661,86 @@ class DBStorage:
         now = datetime.now().isoformat(timespec='seconds')
         with sqlite3.connect(self._db_path) as conn:
             conn.execute('UPDATE backup_plans SET last_run=?, updated_at=? WHERE id=?', (now, now, plan_id))
+            conn.commit()
+
+    # ── 同步计划管理 ──
+
+    def list_sync_plans(self, conn_id=None):
+        """列出同步计划"""
+        with sqlite3.connect(self._db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            if conn_id:
+                rows = conn.execute(
+                    'SELECT * FROM sync_plans WHERE source_conn_id=? OR target_conn_id=? ORDER BY created_at DESC',
+                    (conn_id, conn_id)
+                ).fetchall()
+            else:
+                rows = conn.execute('SELECT * FROM sync_plans ORDER BY created_at DESC').fetchall()
+            result = []
+            for r in rows:
+                d = dict(r)
+                if isinstance(d.get('tables'), str):
+                    import json
+                    try:
+                        d['tables'] = json.loads(d['tables'])
+                    except (json.JSONDecodeError, TypeError):
+                        d['tables'] = []
+                return result
+
+    def get_sync_plan(self, plan_id):
+        """获取单个同步计划"""
+        with sqlite3.connect(self._db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute('SELECT * FROM sync_plans WHERE id=?', (plan_id,)).fetchone()
+            if row:
+                d = dict(row)
+                if isinstance(d.get('tables'), str):
+                    import json
+                    try:
+                        d['tables'] = json.loads(d['tables'])
+                    except (json.JSONDecodeError, TypeError):
+                        d['tables'] = []
+                return d
+            return None
+
+    def save_sync_plan(self, data):
+        """新增或更新同步计划"""
+        now = datetime.now().isoformat(timespec='seconds')
+        import json
+        if isinstance(data.get('tables'), (list, tuple)):
+            data['tables'] = json.dumps(data['tables'])
+
+        if data.get('id'):
+            plan_id = data.pop('id')
+            data['updated_at'] = now
+            sets = ', '.join(f'{k}=?' for k in data.keys())
+            params = list(data.values()) + [plan_id]
+            with sqlite3.connect(self._db_path) as conn:
+                conn.execute(f'UPDATE sync_plans SET {sets} WHERE id=?', params)
+                conn.commit()
+            return plan_id
+        else:
+            data.pop('id', None)
+            data['created_at'] = now
+            data['updated_at'] = now
+            cols = ', '.join(data.keys())
+            placeholders = ', '.join('?' for _ in data)
+            params = list(data.values())
+            with sqlite3.connect(self._db_path) as conn:
+                cur = conn.cursor()
+                cur.execute(f'INSERT INTO sync_plans ({cols}) VALUES ({placeholders})', params)
+                conn.commit()
+                return cur.lastrowid
+
+    def delete_sync_plan(self, plan_id):
+        """删除同步计划"""
+        with sqlite3.connect(self._db_path) as conn:
+            conn.execute('DELETE FROM sync_plans WHERE id=?', (plan_id,))
+            conn.commit()
+
+    def update_sync_plan_run_time(self, plan_id):
+        """更新同步计划最后运行时间"""
+        now = datetime.now().isoformat(timespec='seconds')
+        with sqlite3.connect(self._db_path) as conn:
+            conn.execute('UPDATE sync_plans SET last_run=?, updated_at=? WHERE id=?', (now, now, plan_id))
             conn.commit()
