@@ -2,9 +2,11 @@
 import { ref, computed, h, shallowRef, markRaw, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import { api, ExecResult } from '../api'
 import { useMessage, useDialog } from 'naive-ui'
+import { useAppStore } from '../stores/app'
 import SqlEditor from '../components/SqlEditor.vue'
 import SnippetPanel from '../components/SnippetPanel.vue'
 import AIAssistantPanel from '../components/AIAssistantPanel.vue'
+const store = useAppStore()
 const props = withDefaults(defineProps<{
   connId?: number
   dbName?: string
@@ -113,6 +115,40 @@ const historySearch = ref('')
 const showHistoryPanel = ref(false)
 const snippetPanelRef = ref<InstanceType<typeof SnippetPanel> | null>(null)
 const showSnippetPanel = ref(false)
+
+// ── 拖拽上传 ──
+const isDragOver = ref(false)
+
+function onDrop(e: DragEvent) {
+  isDragOver.value = false
+  const raw = e.dataTransfer?.getData('application/mdbs-node')
+  if (!raw) return
+  try {
+    const data = JSON.parse(raw)
+    const { nodeType, label, connId: dragConnId, dbName: dragDbName, schemaName: dragSchemaName, tableName } = data
+    // 只处理表/视图
+    if (nodeType !== 'table' && nodeType !== 'view') return
+    const name = label || tableName
+    if (!name) return
+
+    let sql = ''
+    // 检查连接类型
+    const isPG = dragConnId && store.connections.find((c: any) => c.id === dragConnId)?.db_type === 'PostgreSQL'
+
+    sql = isPG
+      ? `SELECT * FROM "${dragSchemaName || 'public'}"."${name}" LIMIT 1000;`
+      : `SELECT * FROM \`${name}\` LIMIT 1000;`
+
+    // 插入到编辑器
+    if (sqlText.value && !sqlText.value.endsWith('\n') && !sqlText.value.endsWith(';')) {
+      sqlText.value += '\n' + sql
+    } else {
+      sqlText.value += sql
+    }
+    clearDraft()
+    message.success(`已插入 ${name} 的查询`)
+  } catch { /* ignore */ }
+}
 
 const filteredHistory = computed(() => {
   if (!historySearch.value.trim()) return queryHistory.value
@@ -1224,7 +1260,13 @@ async function doSaveQuery(overwrite?: boolean) {
       </div>
 
       <div class="editor-body" style="position: relative;">
-        <div class="editor-sql-area">
+        <div
+          class="editor-sql-area"
+          :class="{ 'drag-over': isDragOver }"
+          @dragover.prevent="isDragOver = true"
+          @dragleave="isDragOver = false"
+          @drop.prevent="onDrop"
+        >
           <SqlEditor
             ref="sqlEditorRef"
             v-model:modelValue="sqlText"
@@ -1572,6 +1614,12 @@ async function doSaveQuery(overwrite?: boolean) {
   min-height: 0;
   gap: 0;
   overflow: hidden;
+}
+
+.editor-sql-area.drag-over {
+  outline: 2px dashed var(--color-primary);
+  outline-offset: -2px;
+  background: var(--bg-hover);
 }
 
 .editor-sql-area {

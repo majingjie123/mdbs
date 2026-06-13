@@ -734,13 +734,30 @@ function onUpdateExpandedKeys(keys: string[]) {
 }
 
 // ── 右键菜单 ──
-// 使用 n-tree 的 :node-props 回调为每个节点注入 onContextmenu 原生事件
+// 使用 n-tree 的 :node-props 回调为每个节点注入 onContextmenu 原生事件及拖拽支持
 function handleNodeProps({ option }: { option: any }) {
+  const node = option as TreeNode
+  const dragTypes = ['table', 'view', 'function', 'trigger']
+  const isDragTarget = dragTypes.includes(node.nodeType || '')
   return {
     onContextmenu: (e: MouseEvent) => {
       e.preventDefault()
       ctxMenu.value = { visible: true, x: e.clientX, y: e.clientY, node: option as TreeNode }
-    }
+    },
+    ...(isDragTarget ? {
+      draggable: 'true' as const,
+      ondragstart: (e: DragEvent) => {
+        e.dataTransfer?.setData('application/mdbs-node', JSON.stringify({
+          nodeType: node.nodeType,
+          label: node.label.replace(/^[🔔📂📄📐📦⭐🕐]\s*/, ''),
+          connId: node.connId,
+          dbName: node.dbName,
+          schemaName: node.schemaName,
+          tableName: node.rawData?.name || node.rawData?.TABLE_NAME || '',
+        }))
+        e.dataTransfer!.effectAllowed = 'copy'
+      },
+    } : {}),
   }
 }
 
