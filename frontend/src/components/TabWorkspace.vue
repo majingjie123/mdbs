@@ -19,6 +19,7 @@ const componentMap: Record<string, any> = {
   'function-manager': markRaw(defineAsyncComponent(() => import('../views/FunctionManager.vue'))),
   'trigger-manager': markRaw(defineAsyncComponent(() => import('../views/TriggerManager.vue'))),
   'event-manager': markRaw(defineAsyncComponent(() => import('../views/EventManager.vue'))),
+  'er-viewer': markRaw(defineAsyncComponent(()=>import('../views/InteractiveERViewer.vue'))),
   'performance-monitor': markRaw(defineAsyncComponent(() => import('../views/PerformanceMonitor.vue'))),
   'sql-task-manager': markRaw(defineAsyncComponent(() => import('../views/SQLTaskManager.vue'))),
   'sync-plan-manager': markRaw(defineAsyncComponent(() => import('../views/SyncPlanManager.vue'))),

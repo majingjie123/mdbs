@@ -38,6 +38,34 @@ def list_tables(
     except Exception as e:
         return {"success": False, "message": str(e)}
 
+@router.get("/{conn_id}/er-data")
+def get_er_diagram_data(
+    conn_id: int,
+    database: str = "",
+    schema: str = "",
+    storage: DBStorage = Depends(get_db_storage),
+    ops: DBOperations = Depends(get_db_ops),
+):
+    try:
+        conn_data = _get_conn_data(conn_id, storage)
+        structures = ops.get_table_structure(conn_data, database=database or None, schema=schema or None)
+        if not structures:
+            return {"success": False, "message": "not found"}
+        relations = ops.get_relations(conn_data, database=database or None)
+        rels = []
+        if relations:
+            for r in relations:
+                rels.append({"from_table": r.get("TABLE_NAME",""), "from_column": r.get("COLUMN_NAME",""), "to_table": r.get("REFERENCED_TABLE_NAME",""), "to_column": r.get("REFERENCED_COLUMN_NAME","")})
+        tables_data = []
+        for name, cols in structures.items():
+            fields = []
+            for col in cols:
+                fields.append({"name": col.get("Field") or col.get("column_name",""), "type": col.get("Type") or col.get("data_type",""), "key": col.get("Key","")})
+            tables_data.append({"name": name, "columns": fields})
+        return {"success": True, "data": {"tables": tables_data, "relations": rels}}
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
 
 @router.get("/{conn_id}/{table_name}/columns")
 def get_table_columns(

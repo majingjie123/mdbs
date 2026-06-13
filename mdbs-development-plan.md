@@ -521,7 +521,7 @@ AppLayout.vue 菜单栏下方添加工具栏，带图标按钮和 hover 提示�
 |--------|--------|------|----------|
 | ER 图导出 | P2 | ✅ 完成 | Mermaid.js → HTML/PDF |
 | 连接池管理 | P2 | ✅ 部分 | 5min TTL 连接缓存 |
-| 交互式 ER 图查看器 | P3 | ❌ 待开发 | 前端 d3.js / vis.js |
+| 交互式 ER 图查看器 | P3 | ✅ 完成 | Mermaid.js 渲染 + 表结构/关系展示 |
 | 用户权限管理 | P3 | ✅ 完成 | GRANT/REVOKE + 用户CRUD |
 | 数据库性能监控 | P3 | ✅ 完成 | SHOW STATUS + 连接/查询/锁/进程监控 |
 | SQL 任务计划 | P3 | ✅ 完成 | threading 调度 + CRUD + SQLTaskManager |

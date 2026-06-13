@@ -206,7 +206,7 @@ export const api = {
   // ── 导出 ───────────────────────────────────────────
 
   /** 导出表结构 - 返回 blob，需触发下载 */
-  exportStructure: (params: any) =>
+  getERData:(connId,db)=>http.get("/tables/"+connId+"/er-data",{params:{database:db||""}}),exportStructure: (params: any) =>
     http.post('/export/structure', params, { responseType: 'blob' }) as Promise<Blob>,
 
   /** 导出 ER 图 - 返回 blob */

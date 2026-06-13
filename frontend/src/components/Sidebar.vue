@@ -636,6 +636,14 @@ async function onExpand(node: TreeNode) {
         children: [],
       })
       mgmtItems.push({
+        label: '🗺️ ER 图',
+        key: `${node.key}/er-view`,
+        isLeaf: false,
+        nodeType: 'folder',
+        connId: node.connId,
+        children: [],
+      })
+      mgmtItems.push({
         label: '📅 SQL 任务',
         key: `${node.key}/sql-tasks`,
         isLeaf: false,
@@ -678,10 +686,14 @@ async function onExpand(node: TreeNode) {
     } else if (parts.some((p) => p === 'sync-plans')) {
       // 同步计划文件夹无子项, 直接打开
       onDblClick(node)
-    } else if (parts.some((p) => p === 'performance')
-    } else if (parts.some((p) => p === 'sql-tasks')) {
-      onDblClick(node)) {
+    } else if (parts.some((p) => p === 'er-view')) {
+      // ER 图文件夹无子项, 直接打开
+      onDblClick(node)
+    } else if (parts.some((p) => p === 'performance')) {
       // 性能监控文件夹无子项, 直接打开
+      onDblClick(node)
+    } else if (parts.some((p) => p === 'sql-tasks')) {
+      // SQL 任务文件夹无子项, 直接打开
       onDblClick(node)
     } else if (parts.some((p) => p === 'queries')) {
       await loadQueriesIntoFolder(node)
@@ -832,6 +844,13 @@ function onDblClick(node: TreeNode) {
   // 性能监控文件夹 → 打开性能监控
   if (type === 'folder' && node.key?.includes('/performance')) {
     store.openTab('performance-monitor', '📊 性能监控', {
+      connId: node.connId,
+    })
+  }
+
+  // ER 图文件夹 → 打开 ER 图查看器
+  if (type === 'folder' && node.key?.includes('/er-view')) {
+    store.openTab('er-viewer', '🗺️ ER 图', {
       connId: node.connId,
     })
   }
