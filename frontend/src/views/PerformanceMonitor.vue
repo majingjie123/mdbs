@@ -8,6 +8,8 @@ const message = useMessage()
 const loading = ref(false)
 const status = ref<any>(null)
 const refreshing = ref(false)
+const poolStats = ref<any>(null)
+const poolLoading = ref(false)
 
 async function loadStatus() {
   if (!props.connId) return
@@ -23,6 +25,18 @@ async function loadStatus() {
   }
 }
 
+async function loadPoolStats() {
+  poolLoading.value = true
+  try {
+    const res: any = await api.monitorPoolStats()
+    if (res.success) poolStats.value = res.data
+  } catch (e: any) {
+    // 静默失败
+  } finally {
+    poolLoading.value = false
+  }
+}
+
 function formatUptime(seconds: string | number): string {
   const s = parseInt(String(seconds))
   if (!s) return 'N/A'
@@ -32,7 +46,7 @@ function formatUptime(seconds: string | number): string {
   return d + '天 ' + h + '时 ' + m + '分'
 }
 
-onMounted(loadStatus)
+onMounted(() => { loadStatus(); loadPoolStats() })
 </script>
 
 <template>

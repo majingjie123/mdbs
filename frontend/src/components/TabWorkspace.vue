@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, markRaw, defineAsyncComponent } from 'vue'
+import { ref, onMounted, onUnmounted, markRaw, defineAsyncComponent, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAppStore, type TabItem } from '../stores/app'
 import { useMessage } from 'naive-ui'
@@ -7,6 +7,44 @@ import { useMessage } from 'naive-ui'
 const store = useAppStore()
 const router = useRouter()
 const message = useMessage()
+
+// ── 底部面板高度 ──
+const bottomHeight = ref(150)
+const isDragging = ref(false)
+const bottomPanelEl = ref<HTMLElement | null>(null)
+
+watch(() => store.bottomPanelOpen, (open) => {
+  if (!open) isDragging.value = false
+})
+
+function onResizeStart(e: MouseEvent) {
+  if (!store.bottomPanelOpen) return
+  e.preventDefault()
+  isDragging.value = true
+  document.addEventListener('mousemove', onResizeMove)
+  document.addEventListener('mouseup', onResizeUp)
+}
+
+function onResizeMove(e: MouseEvent) {
+  if (!isDragging.value) return
+  const container = bottomPanelEl.value?.parentElement
+  if (!container) return
+  const rect = container.getBoundingClientRect()
+  const maxH = rect.height - 100
+  const h = rect.bottom - e.clientY
+  bottomHeight.value = Math.max(60, Math.min(h, maxH))
+}
+
+function onResizeUp() {
+  isDragging.value = false
+  document.removeEventListener('mousemove', onResizeMove)
+  document.removeEventListener('mouseup', onResizeUp)
+}
+
+onUnmounted(() => {
+  document.removeEventListener('mousemove', onResizeMove)
+  document.removeEventListener('mouseup', onResizeUp)
+})
 
 // ── 组件映射 ──
 const componentMap: Record<string, any> = {
@@ -27,6 +65,7 @@ const componentMap: Record<string, any> = {
   'slow-query-manager': markRaw(defineAsyncComponent(() => import('../views/SlowQueryManager.vue'))),
   'user-manager': markRaw(defineAsyncComponent(() => import('../views/UserManager.vue'))),
   'settings': markRaw(defineAsyncComponent(() => import('../views/SettingsPage.vue'))),
+  'sequence-manager': markRaw(defineAsyncComponent(() => import('../views/SequenceManager.vue'))),
 }
 
 // ── 右键菜单 ──
@@ -249,4 +288,106 @@ function onTabMouseDown(e: MouseEvent, tab: TabItem) {
   background: var(--bg-hover);
   color: #fff;
 }
+
+/* 底部消息/日志面板 */
+.bottom-panel {
+  flex-shrink: 0;
+  background: var(--bg-sidebar);
+  border-top: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.bottom-resize-handle {
+  height: 3px;
+  cursor: ns-resize;
+  background: transparent;
+  flex-shrink: 0;
+}
+.bottom-resize-handle:hover {
+  background: var(--color-accent);
+}
+.bottom-tabs {
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+  min-height: 26px;
+}
+.bottom-tab {
+  padding: 4px 12px;
+  font-size: 11px;
+  cursor: pointer;
+  color: var(--color-text-muted);
+  border-bottom: 2px solid transparent;
+  user-select: none;
+}
+.bottom-tab.active {
+  color: var(--color-accent);
+  border-bottom-color: var(--color-accent);
+}
+.bottom-toolbar {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+}
+.bottom-action {
+  font-size: 11px;
+  cursor: pointer;
+  color: var(--color-text-muted);
+  padding: 2px 6px;
+}
+.bottom-action:hover {
+  color: var(--color-text);
+}
+.bottom-content {
+  flex: 1;
+  overflow: hidden;
+}
+.bottom-scroll {
+  height: 100%;
+  overflow-y: auto;
+  padding: 4px 0;
+  font-size: 12px;
+  font-family: monospace;
+}
+.bottom-empty {
+  padding: 16px;
+  text-align: center;
+  color: var(--color-text-muted);
+  font-family: inherit;
+}
+.bottom-line {
+  padding: 2px 12px;
+  display: flex;
+  gap: 8px;
+  line-height: 1.4;
+}
+.bottom-line.level-error {
+  color: #f56c6c;
+}
+.bottom-line.level-warn {
+  color: #e6a23c;
+}
+.bottom-line.level-success {
+  color: #67c23a;
+}
+.bottom-line.level-info {
+  color: var(--color-text-secondary);
+}
+.bottom-time {
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+  width: 65px;
+}
+.bottom-source {
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}
+.bottom-msg {
+  flex: 1;
+  word-break: break-all;
+}
+
 </style>

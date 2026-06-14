@@ -23,6 +23,8 @@ const fileMenuVisible = ref(false)
 const toolsMenuVisible = ref(false)
 const editMenuVisible = ref(false)
 const viewMenuVisible = ref(false)
+const navigateMenuVisible = ref(false)
+const windowMenuVisible = ref(false)
 const helpMenuVisible = ref(false)
 
 // 对话框可见性
@@ -102,6 +104,8 @@ function toggleFileMenu(e: MouseEvent) {
   editMenuVisible.value = false
   viewMenuVisible.value = false
   helpMenuVisible.value = false
+  navigateMenuVisible.value = false
+  windowMenuVisible.value = false
 }
 
 function toggleToolsMenu(e: MouseEvent) {
@@ -111,6 +115,8 @@ function toggleToolsMenu(e: MouseEvent) {
   editMenuVisible.value = false
   viewMenuVisible.value = false
   helpMenuVisible.value = false
+  navigateMenuVisible.value = false
+  windowMenuVisible.value = false
 }
 
 function toggleEditMenu(e: MouseEvent) {
@@ -120,6 +126,8 @@ function toggleEditMenu(e: MouseEvent) {
   toolsMenuVisible.value = false
   viewMenuVisible.value = false
   helpMenuVisible.value = false
+  navigateMenuVisible.value = false
+  windowMenuVisible.value = false
 }
 
 function toggleViewMenu(e: MouseEvent) {
@@ -128,6 +136,28 @@ function toggleViewMenu(e: MouseEvent) {
   fileMenuVisible.value = false
   toolsMenuVisible.value = false
   editMenuVisible.value = false
+  helpMenuVisible.value = false
+}
+
+function toggleNavigateMenu(e: MouseEvent) {
+  e.stopPropagation()
+  navigateMenuVisible.value = !navigateMenuVisible.value
+  fileMenuVisible.value = false
+  toolsMenuVisible.value = false
+  editMenuVisible.value = false
+  viewMenuVisible.value = false
+  windowMenuVisible.value = false
+  helpMenuVisible.value = false
+}
+
+function toggleWindowMenu(e: MouseEvent) {
+  e.stopPropagation()
+  windowMenuVisible.value = !windowMenuVisible.value
+  fileMenuVisible.value = false
+  toolsMenuVisible.value = false
+  editMenuVisible.value = false
+  viewMenuVisible.value = false
+  navigateMenuVisible.value = false
   helpMenuVisible.value = false
 }
 
@@ -146,6 +176,8 @@ function closeMenus() {
   editMenuVisible.value = false
   viewMenuVisible.value = false
   helpMenuVisible.value = false
+  navigateMenuVisible.value = false
+  windowMenuVisible.value = false
 }
 
 // 文件菜单操作
@@ -195,6 +227,38 @@ function goFullscreen() {
   }
 }
 
+
+// 导航菜单
+function goNewQuery() {
+  closeMenus()
+  store.openTab('sql-workbench', '新建查询', {
+    connId: store.selectedNode.connId,
+    dbName: store.selectedNode.dbName,
+  })
+}
+function goAIHelp() {
+  closeMenus()
+  goAIChat()
+}
+
+// 窗口菜单
+function goNextTab() {
+  closeMenus()
+  store.activateNextTab()
+}
+function goPrevTab() {
+  closeMenus()
+  store.activatePrevTab()
+}
+function goCloseTab() {
+  closeMenus()
+  store.closeActiveTab()
+}
+function goCloseAllTabs() {
+  closeMenus()
+  store.tabs = []
+  store.activeTab = null
+}
 // 帮助菜单
 function goAbout() {
   closeMenus()
@@ -266,6 +330,27 @@ function goShortcuts() {
           <div v-if="viewMenuVisible" class="dropdown-menu" @click.stop>
             <div class="dropdown-item" @click="toggleSidebar">切换侧栏</div>
             <div class="dropdown-item" @click="goFullscreen">全屏</div>
+          </div>
+        </div>
+        <div class="menu-item" @click="toggleNavigateMenu">
+          <span class="menu-label">导航</span>
+          <svg width="10" height="6" viewBox="0 0 10 6" fill="currentColor"><path d="M0 0l5 6 5-6z"/></svg>
+          <div v-if="navigateMenuVisible" class="dropdown-menu" @click.stop>
+            <div class="dropdown-item" @click="goNewQuery">新建查询</div>
+            <div class="dropdown-item" @click="goAIHelp">AI 助手</div>
+            <div class="dropdown-separator"></div>
+            <div class="dropdown-item" @click="goSettings">首选项...</div>
+          </div>
+        </div>
+        <div class="menu-item" @click="toggleWindowMenu">
+          <span class="menu-label">窗口</span>
+          <svg width="10" height="6" viewBox="0 0 10 6" fill="currentColor"><path d="M0 0l5 6 5-6z"/></svg>
+          <div v-if="windowMenuVisible" class="dropdown-menu" @click.stop>
+            <div class="dropdown-item" @click="goNextTab">下一个标签</div>
+            <div class="dropdown-item" @click="goPrevTab">上一个标签</div>
+            <div class="dropdown-separator"></div>
+            <div class="dropdown-item" @click="goCloseTab">关闭当前标签</div>
+            <div class="dropdown-item" @click="goCloseAllTabs">全部关闭</div>
           </div>
         </div>
         <div class="menu-item" @click="toggleHelpMenu">
@@ -399,6 +484,13 @@ function goShortcuts() {
         <span class="status-tabs">标签 {{ tabCount }}</span>
         <span class="status-divider">|</span>
         <span class="status-conns">{{ onlineCount }} 个连接</span>
+        <span class="status-divider">|</span>
+        <span
+          class="status-bottom-toggle"
+          :class="{ active: store.bottomPanelOpen }"
+          @click="store.toggleBottomPanel()"
+          title="切换底部面板"
+        >📋 {{ store.messages.length > 0 ? store.messages.length : '' }}</span>
         <span class="status-divider">|</span>
         <span class="status-clock">{{ currentTime }}</span>
       </div>
@@ -618,6 +710,20 @@ function goShortcuts() {
   color: var(--color-border);
   opacity: 0.5;
 }
+
+.status-bottom-toggle {
+  cursor: pointer;
+  color: var(--color-text-muted);
+  transition: color 0.15s;
+  user-select: none;
+}
+.status-bottom-toggle:hover {
+  color: var(--color-accent);
+}
+.status-bottom-toggle.active {
+  color: var(--color-accent);
+}
+
 .status-clock {
   font-family: monospace;
   letter-spacing: 0.5px;

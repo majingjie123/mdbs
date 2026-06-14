@@ -2,10 +2,17 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { api } from '../api'
 
+export interface LogEntry {
+  time: string
+  level: 'info' | 'warn' | 'error' | 'success'
+  source: string
+  message: string
+}
+
 export interface TabItem {
   id: string
   title: string
-  type: 'sql-workbench' | 'table-browser' | 'ai-chat' | 'ai-settings' | 'connection-list' | 'connection-detail' | 'view-manager' | 'function-manager' | 'trigger-manager' | 'event-manager' | 'er-viewer' | 'sql-task-manager' | 'performance-monitor' | 'sync-plan-manager' | 'backup-plan-manager' | 'user-manager' | 'slow-query-manager' | 'settings'
+  type: 'sql-workbench' | 'table-browser' | 'ai-chat' | 'ai-settings' | 'connection-list' | 'connection-detail' | 'view-manager' | 'function-manager' | 'trigger-manager' | 'event-manager' | 'er-viewer' | 'sql-task-manager' | 'performance-monitor' | 'sync-plan-manager' | 'backup-plan-manager' | 'user-manager' | 'slow-query-manager' | 'settings' | 'sequence-manager'
   props: Record<string, any>
   closable: boolean
 }
@@ -148,6 +155,50 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
+  function activateNextTab() {
+    if (tabs.value.length === 0 || !activeTabId.value) return
+    const idx = tabs.value.findIndex((t) => t.id === activeTabId.value)
+    if (idx === -1) return
+    const next = (idx + 1) % tabs.value.length
+    activeTabId.value = tabs.value[next].id
+  }
+
+  function activatePrevTab() {
+    if (tabs.value.length === 0 || !activeTabId.value) return
+    const idx = tabs.value.findIndex((t) => t.id === activeTabId.value)
+    if (idx === -1) return
+    const prev = (idx - 1 + tabs.value.length) % tabs.value.length
+    activeTabId.value = tabs.value[prev].id
+  }
+
+  // ── 底部消息/日志面板 ──
+  const bottomPanelOpen = ref(false)
+  const bottomPanelTab = ref<'messages' | 'logs'>('messages')
+  const messages = ref<LogEntry[]>([])
+  const logs = ref<LogEntry[]>([])
+
+  function addMessage(entry: LogEntry) {
+    messages.value.push(entry)
+    if (messages.value.length > 500) messages.value.splice(0, 100)
+  }
+
+  function addLog(entry: LogEntry) {
+    logs.value.push(entry)
+    if (logs.value.length > 1000) logs.value.splice(0, 200)
+  }
+
+  function toggleBottomPanel() {
+    bottomPanelOpen.value = !bottomPanelOpen.value
+  }
+
+  function clearMessages() {
+    messages.value = []
+  }
+
+  function clearLogs() {
+    logs.value = []
+  }
+
   return {
     connections,
     currentConnId,
@@ -170,6 +221,18 @@ export const useAppStore = defineStore('app', () => {
     closeAllTabs,
     closeTabsByConnId,
     activateTab,
+    activateNextTab,
+    activatePrevTab,
+    // 底部面板
+    bottomPanelOpen,
+    bottomPanelTab,
+    messages,
+    logs,
+    addMessage,
+    addLog,
+    toggleBottomPanel,
+    clearMessages,
+    clearLogs,
     themeId,
   }
 })

@@ -5,6 +5,7 @@ import { useAppStore } from '../stores/app'
 import { api } from '../api'
 import SyncDialog from './dialogs/SyncDialog.vue'
 import ImportDialog from './dialogs/ImportDialog.vue'
+import DataGeneratorDialog from './dialogs/DataGeneratorDialog.vue'
 
 const message = useMessage()
 const dialog = useDialog()
@@ -88,6 +89,8 @@ const showSyncDialog = ref(false)
 const syncDialogProps = ref<{ connId?: number; dbName?: string; tableName?: string }>({})
 const showImportDialog = ref(false)
 const importDialogProps = ref<{ connId?: number; dbName?: string; tableName?: string }>({})
+const showDataGenDialog = ref(false)
+const dataGenDialogProps = ref<{ connId?: number; dbName?: string; tableName?: string }>({})
 const showCreateDbDialog = ref(false)
 const createDbConnId = ref(0)
 const newDbName = ref('')
@@ -1076,6 +1079,10 @@ function handleCtxAction(action: string | undefined) {
       importDialogProps.value = { connId, dbName, tableName }
       showImportDialog.value = true
       break
+    case 'generate-data':
+      dataGenDialogProps.value = { connId, dbName, tableName }
+      showDataGenDialog.value = true
+      break
     case 'sync-table':
       syncDialogProps.value = { connId, dbName, tableName }
       showSyncDialog.value = true
@@ -1345,6 +1352,7 @@ function getMenuItems(nodeType: string = '') {
         { separator: true },
         { label: '同步表结构...', action: 'sync-table' },
         { label: '📥 导入数据到该表...', action: 'import-to-table' },
+        { label: '📊 生成测试数据...', action: 'generate-data' },
         { separator: true },
         { label: '复制表名', action: 'copy-name' },
         { label: '生成 SELECT 语句', action: 'generate-select' },
@@ -1488,6 +1496,9 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
 
     <!-- 导入对话框 -->
     <ImportDialog v-model:visible="showImportDialog" :conn-id="importDialogProps.connId" :db-name="importDialogProps.dbName" :table-name="importDialogProps.tableName" />
+
+    <!-- 数据生成器对话框 -->
+    <DataGeneratorDialog v-model:visible="showDataGenDialog" :conn-id="dataGenDialogProps.connId" :db-name="dataGenDialogProps.dbName" :table-name="dataGenDialogProps.tableName" />
 
     <!-- 右键菜单（teleport 到 body） -->
     <teleport to="body">

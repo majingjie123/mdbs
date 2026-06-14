@@ -33,6 +33,8 @@ from .routers import slow_queries as slow_queries_router
 from .routers import sync_plan as sync_plan_router
 from .routers import monitor as monitor_router
 from .routers import sql_tasks as sql_tasks_router
+from .routers import data_generator as data_generator_router
+from .routers import sequences as sequences_router
 
 app = FastAPI(
     title="MDBS",
@@ -67,6 +69,10 @@ app.include_router(users_router.router)
 app.include_router(index_advisor_router.router)
 app.include_router(slow_queries_router.router)
 app.include_router(sync_plan_router.router)
+app.include_router(monitor_router.router)
+app.include_router(sql_tasks_router.router)
+app.include_router(data_generator_router.router)
+app.include_router(sequences_router.router)
 
 
 @app.on_event("startup")

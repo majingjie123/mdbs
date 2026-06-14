@@ -28,10 +28,15 @@ router = APIRouter(prefix="/api/backup", tags=["备份恢复"])
 
 # ── Pydantic 请求模型 ──────────────────────────────────────
 
+# 增量备份追踪
+_INCREMENTAL_STATE: dict = {}  # key: (conn_id, database) -> {"last_backup": timestamp, "table_rows": {}}
+
+
 class BackupRequest(BaseModel):
     database: Optional[str] = None
     backup_path: Optional[str] = None
     options: list[str] = ["structure", "data"]  # structure, data, views, functions, triggers, events
+    incremental: bool = False  # 增量备份（仅备份变化的数据）
 
 
 class RestoreRequest(BaseModel):
@@ -89,8 +94,44 @@ def create_backup(conn_id: int, req: BackupRequest,
     options = req.options or ["structure", "data"]
     include_structure = "structure" in options
     include_data = "data" in options
+    incremental = getattr(req, 'incremental', False)
 
-    # 6. 执行备份
+    # 6. 增量备份
+    if incremental:
+        state_key = (conn_id, database)
+        state = _INCREMENTAL_STATE.get(state_key, {})
+        last_backup = state.get("last_backup")
+        try:
+            conn = bm._get_python_connection(conn_data, database)
+            if conn_data.get("db_type") == "MySQL":
+                cur = conn.cursor()
+                cur.execute("SELECT TABLE_NAME, TABLE_ROWS, UPDATE_TIME FROM information_schema.tables WHERE TABLE_SCHEMA = %s AND TABLE_TYPE = 'BASE TABLE'", [database])
+                current_rows = {}
+                for r in cur.fetchall():
+                    current_rows[r[0]] = {"rows": r[1], "updated": str(r[2]) if r[2] else ""}
+                prev_rows = state.get("table_rows", {})
+                changed_tables = [t for t, info in current_rows.items() if t not in prev_rows or prev_rows[t].get("rows") != info["rows"]]
+                state["table_rows"] = current_rows
+                _INCREMENTAL_STATE[state_key] = state
+            else:
+                changed_tables = []
+            try: conn.close()
+            except: pass
+        except:
+            changed_tables = []
+
+        if not changed_tables and last_backup:
+            return {"success": True, "data": {"file_path": "", "file_size": 0, "tables_count": 0, "incremental": True, "changed": 0}, "message": "无变更，跳过备份"}
+
+        state["last_backup"] = time.time()
+        _INCREMENTAL_STATE[state_key] = state
+
+        if changed_tables:
+            safe_name = database.replace(" ", "_").replace("/", "_")
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            output_path = os.path.join(SYNC_LOGS_DIR, "incr_" + safe_name + "_" + timestamp + ".sql")
+
+    # 7. 执行备份
     try:
         bm = BackupManager()
         success, message = bm.backup_database(

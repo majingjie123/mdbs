@@ -128,6 +128,38 @@ class DBOperations:
             self._conn_cache.clear()
         self.ssh_manager.stop_all_tunnels()
 
+
+    def get_pool_stats(self) -> dict:
+        """返回连接池统计信息"""
+        with self._cache_lock:
+            entries = []
+            for key, (conn, ts) in list(self._conn_cache.items()):
+                alive = False
+                try:
+                    if hasattr(conn, 'ping'):
+                        conn.ping(reconnect=False)
+                        alive = True
+                    elif hasattr(conn, 'run'):
+                        conn.run('SELECT 1')
+                        alive = True
+                except Exception:
+                    alive = False
+                parts = key.split('_', 1)
+                conn_id = parts[0] if len(parts) > 0 else key
+                db_name = parts[1] if len(parts) > 1 else ''
+                age_seconds = int(time.time() - ts)
+                entries.append({
+                    'conn_id': conn_id,
+                    'database': db_name,
+                    'age_seconds': age_seconds,
+                    'alive': alive,
+                })
+            return {
+                'total': len(self._conn_cache),
+                'entries': entries,
+                'ttl_seconds': 300,
+            }
+
     def test_connection(self, conn_data):
         """测试数据库连接 (增强版：支持错误清洗与智能检测)"""
         db_type = conn_data.get('db_type', 'MySQL')

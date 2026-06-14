@@ -98,3 +98,14 @@ def get_server_status(
         return {"success": True, "data": metrics}
     except Exception as e:
         return {"success": False, "message": str(e)}
+
+@router.get("/pool-stats")
+def get_pool_stats(
+    ops: DBOperations = Depends(get_db_ops),
+):
+    """获取连接池统计信息"""
+    try:
+        stats = ops.get_pool_stats()
+        return {"success": True, "data": stats}
+    except Exception as e:
+        return {"success": False, "message": str(e)}

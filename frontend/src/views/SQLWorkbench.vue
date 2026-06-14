@@ -711,14 +711,35 @@ async function runQuery() {
       addHistory(sqlText.value)
       clearDraft()
       nextTick(() => updateScrollButtons())
+      // 发送消息到底部面板
+      const elapsed = ((performance.now() - t0) / 1000).toFixed(2)
+      const rowCnt = res.data.rows ? res.data.rows.length : (res.data.affected || 0)
+      store.addMessage({
+        time: new Date().toLocaleTimeString(),
+        level: 'success',
+        source: 'SQL 执行',
+        message: `查询完成 | ${elapsed}s | ${rowCnt} 行`,
+      })
     } else {
       error.value = res.message || '执行失败'
       allRows.value = []
+      store.addMessage({
+        time: new Date().toLocaleTimeString(),
+        level: 'error',
+        source: 'SQL 执行',
+        message: `执行失败: ${res.message}`,
+      })
     }
   } catch (e: any) {
     if (e.name === 'AbortError' || e.message?.includes('abort')) return
     error.value = e.message
     allRows.value = []
+    store.addMessage({
+      time: new Date().toLocaleTimeString(),
+      level: 'error',
+      source: 'SQL 执行',
+      message: `异常: ${e.message}`,
+    })
   } finally {
     abortController.value = null
     queryTime.value = Math.round((performance.now() - t0) * 10) / 10 // ms, 1 decimal
